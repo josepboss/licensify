@@ -61,8 +61,10 @@
     .badge-expired { background: #FEF3C7; color: #92400E; }
     .dark .badge-expired { background: rgba(245, 158, 11, 0.15); color: #FBBF24; }
     .badge-revoked { background: #FEE2E2; color: #991B1B; }
-    .dark .badge-revoked { background: rgba(239, 68, 68, 0.15); color: #F87171; }
-    .badge-info { background: #DBEAFE; color: #1E40AF; }
+        .dark .badge-revoked { background: rgba(239, 68, 68, 0.15); color: #F87171; }
+        .badge-pending { background: #DBEAFE; color: #1E40AF; }
+        .dark .badge-pending { background: rgba(59, 130, 246, 0.15); color: #60A5FA; }
+        .badge-info { background: #DBEAFE; color: #1E40AF; }
     .dark .badge-info { background: rgba(59, 130, 246, 0.15); color: #60A5FA; }
     .toast { position: fixed; top: 20px; right: 20px; padding: 14px 20px; border-radius: 10px; color: white; font-size: 14px; font-weight: 500; z-index: 1000; box-shadow: 0 10px 25px rgba(0,0,0,0.15); transform: translateX(120%); transition: transform 0.3s ease; }
     .toast.show { transform: translateX(0); }
@@ -205,8 +207,8 @@
       <div class="p-6">
         <!-- Dashboard View -->
         <div id="viewDashboard" class="view-content">
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div class="card stat-card fade-in" style="animation-delay: 0s">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                      <div class="card stat-card fade-in" style="animation-delay: 0s">
               <div class="flex items-center justify-between">
                 <p class="text-sm text-slate-500 dark:text-slate-400 font-medium">Total Licenses</p>
                 <div class="w-9 h-9 bg-primary-50 dark:bg-primary-500/10 rounded-lg flex items-center justify-center">
@@ -234,14 +236,23 @@
               <p id="statExpired" class="text-3xl font-bold text-amber-600 dark:text-amber-400 mt-3">—</p>
             </div>
             <div class="card stat-card fade-in" style="animation-delay: 0.15s">
-              <div class="flex items-center justify-between">
-                <p class="text-sm text-slate-500 dark:text-slate-400 font-medium">Expiring Soon (7d)</p>
-                <div class="w-9 h-9 bg-rose-50 dark:bg-rose-500/10 rounded-lg flex items-center justify-center">
-                  <svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                </div>
-              </div>
-              <p id="statExpiring" class="text-3xl font-bold text-rose-600 dark:text-rose-400 mt-3">—</p>
-            </div>
+                          <div class="flex items-center justify-between">
+                            <p class="text-sm text-slate-500 dark:text-slate-400 font-medium">Pending Activation</p>
+                            <div class="w-9 h-9 bg-blue-50 dark:bg-blue-500/10 rounded-lg flex items-center justify-center">
+                              <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
+                          </div>
+                          <p id="statPending" class="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-3">—</p>
+                        </div>
+                        <div class="card stat-card fade-in" style="animation-delay: 0.2s">
+                          <div class="flex items-center justify-between">
+                            <p class="text-sm text-slate-500 dark:text-slate-400 font-medium">Expiring Soon (7d)</p>
+                            <div class="w-9 h-9 bg-rose-50 dark:bg-rose-500/10 rounded-lg flex items-center justify-center">
+                              <svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
+                          </div>
+                          <p id="statExpiring" class="text-3xl font-bold text-rose-600 dark:text-rose-400 mt-3">—</p>
+                        </div>
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
@@ -295,9 +306,10 @@
                   </div>
                   <select id="statusFilter" onchange="loadLicenses(1)" class="input-field w-auto">
                     <option value="all">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="expired">Expired</option>
-                    <option value="revoked">Revoked</option>
+                                        <option value="active">Active</option>
+                                        <option value="pending">Pending</option>
+                                        <option value="expired">Expired</option>
+                                        <option value="revoked">Revoked</option>
                   </select>
                 </div>
                 <div class="flex gap-2">
@@ -684,14 +696,15 @@
         if (!res.ok) throw new Error(data.error);
 
         document.getElementById('statTotal').textContent = data.total;
-        document.getElementById('statActive').textContent = data.active;
-        document.getElementById('statExpired').textContent = data.expired;
-        document.getElementById('statExpiring').textContent = data.expired_soon || 0;
-        document.getElementById('statActiveDetail').textContent = data.active;
-        document.getElementById('statExpiredDetail').textContent = data.expired;
-        document.getElementById('statRevokedDetail').textContent = data.revoked;
-        document.getElementById('statPermanent').textContent = data.permanent || 0;
-        document.getElementById('statToday').textContent = data.created_today;
+                document.getElementById('statActive').textContent = data.active;
+                document.getElementById('statExpired').textContent = data.expired;
+                document.getElementById('statPending').textContent = data.pending || 0;
+                document.getElementById('statExpiring').textContent = data.expired_soon || 0;
+                document.getElementById('statActiveDetail').textContent = data.active;
+                document.getElementById('statExpiredDetail').textContent = data.expired;
+                document.getElementById('statRevokedDetail').textContent = data.revoked;
+                document.getElementById('statPermanent').textContent = data.permanent || 0;
+                document.getElementById('statToday').textContent = data.created_today;
 
         // Sub-admin dashboard card
         const subCard = document.getElementById('subAdminDashboardCard');
@@ -714,7 +727,7 @@
                 <code class="text-xs font-mono font-medium text-slate-800 dark:text-slate-200">${l.license_key}</code>
                 <p class="text-xs text-slate-400 mt-0.5">${new Date(l.created_at).toLocaleDateString()}</p>
               </div>
-              <span class="badge ${l.status === 'active' ? 'badge-active' : l.status === 'expired' ? 'badge-expired' : 'badge-revoked'}">${l.status}</span>
+              <span class="badge ${l.status === 'active' ? 'badge-active' : l.status === 'pending' ? 'badge-pending' : l.status === 'expired' ? 'badge-expired' : 'badge-revoked'}">${l.status}</span>
             </div>
           `).join('');
         }
@@ -766,9 +779,11 @@
 
       tbody.innerHTML = licenses.map(l => {
         const badgeClass = l.status === 'active' ? 'badge-active' :
-                           l.status === 'expired' ? 'badge-expired' : 'badge-revoked';
-        const iconColor = l.status === 'active' ? 'text-emerald-500' :
-                          l.status === 'expired' ? 'text-amber-500' : 'text-red-500';
+                                   l.status === 'pending' ? 'badge-pending' :
+                                   l.status === 'expired' ? 'badge-expired' : 'badge-revoked';
+                const iconColor = l.status === 'active' ? 'text-emerald-500' :
+                                  l.status === 'pending' ? 'text-primary-500' :
+                                  l.status === 'expired' ? 'text-amber-500' : 'text-red-500';
 
         return `
         <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/30">
@@ -795,7 +810,7 @@
               <button onclick="viewLicense(${l.id})" class="btn-ghost btn" title="View details">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
               </button>
-              ${l.status === 'active' ? `
+              ${l.status === 'active' || l.status === 'pending' ? `
                 <button onclick="confirmRevoke(${l.id})" class="btn-ghost btn text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10" title="Revoke">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
                 </button>
@@ -857,11 +872,12 @@
               <div><span class="text-slate-400">User:</span><br><span class="font-medium">${license.user_name || '—'}</span></div>
               <div><span class="text-slate-400">Email:</span><br><span class="font-medium">${license.user_email || '—'}</span></div>
               <div><span class="text-slate-400">Duration:</span><br><span class="font-medium">${license.duration_display}</span></div>
-              <div><span class="text-slate-400">Status:</span><br><span class="badge ${license.status === 'active' ? 'badge-active' : license.status === 'expired' ? 'badge-expired' : 'badge-revoked'} mt-1">${license.status}</span></div>
+              <div><span class="text-slate-400">Status:</span><br><span class="badge ${license.status === 'active' ? 'badge-active' : license.status === 'pending' ? 'badge-pending' : license.status === 'expired' ? 'badge-expired' : 'badge-revoked'} mt-1">${license.status.replace('_', ' ')}</span></div>
               <div><span class="text-slate-400">Created:</span><br><span class="font-medium">${formatDate(license.created_at)}</span></div>
               <div><span class="text-slate-400">Expires:</span><br><span class="font-medium">${license.expires_at ? formatDate(license.expires_at) : 'Never'}</span></div>
             </div>
-            ${license.last_validated_at ? `<p class="text-xs text-slate-400">Last validated: ${formatDate(license.last_validated_at)}</p>` : ''}
+            ${license.activated_at ? `<p class="text-xs text-slate-400">Activated: ${formatDate(license.activated_at)}</p>` : '<p class="text-xs text-blue-400">Not yet activated — clock hasn\'t started</p>'}
+                        ${license.last_validated_at ? `<p class="text-xs text-slate-400">Last validated: ${formatDate(license.last_validated_at)}</p>` : ''}
             ${license.notes ? `<div class="pt-2 border-t border-slate-100 dark:border-slate-700"><span class="text-slate-400">Notes:</span><p class="text-slate-600 dark:text-slate-300 mt-1">${license.notes}</p></div>` : ''}
           </div>`, null, 'Close', null, 'btn-secondary');
       } catch (err) {
@@ -973,7 +989,7 @@
 
         document.getElementById('generatedKey').textContent = license.license_key;
         document.getElementById('generatedDetails').textContent =
-          `Duration: ${license.duration_display} • Created: ${formatDate(license.created_at)}`;
+                  `Duration: ${license.duration_display} • Status: Pending (clock starts on first activation) • Created: ${formatDate(license.created_at)}`;
         document.getElementById('generatedResult').classList.remove('hidden');
         document.getElementById('generatedResult').scrollIntoView({ behavior: 'smooth', block: 'center' });
 

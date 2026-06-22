@@ -76,24 +76,25 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS licenses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    license_key TEXT UNIQUE NOT NULL,
-    user_email TEXT DEFAULT '',
-    user_name TEXT DEFAULT '',
-    is_active INTEGER DEFAULT 1,
-    is_permanent INTEGER DEFAULT 0,
-    duration_minutes INTEGER DEFAULT 0,
-    duration_hours INTEGER DEFAULT 0,
-    duration_days INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    expires_at TEXT,
-    revoked_at TEXT,
-    last_validated_at TEXT,
-    notes TEXT DEFAULT '',
-    metadata TEXT DEFAULT '{}',
-    created_by_admin_id INTEGER DEFAULT NULL,
-    created_by_sub_admin_id INTEGER DEFAULT NULL
-  );
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      license_key TEXT UNIQUE NOT NULL,
+      user_email TEXT DEFAULT '',
+      user_name TEXT DEFAULT '',
+      is_active INTEGER DEFAULT 1,
+      is_permanent INTEGER DEFAULT 0,
+      duration_minutes INTEGER DEFAULT 0,
+      duration_hours INTEGER DEFAULT 0,
+      duration_days INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      activated_at TEXT DEFAULT NULL,
+      expires_at TEXT,
+      revoked_at TEXT,
+      last_validated_at TEXT,
+      notes TEXT DEFAULT '',
+      metadata TEXT DEFAULT '{}',
+      created_by_admin_id INTEGER DEFAULT NULL,
+      created_by_sub_admin_id INTEGER DEFAULT NULL
+    );
 
   CREATE INDEX IF NOT EXISTS idx_licenses_key ON licenses(license_key);
   CREATE INDEX IF NOT EXISTS idx_licenses_active ON licenses(is_active);
@@ -108,6 +109,9 @@ db.exec(`
   }
   if (!existingCols.includes('created_by_sub_admin_id')) {
     db.exec("ALTER TABLE licenses ADD COLUMN created_by_sub_admin_id INTEGER DEFAULT NULL");
+  }
+  if (!existingCols.includes('activated_at')) {
+    db.exec("ALTER TABLE licenses ADD COLUMN activated_at TEXT DEFAULT NULL");
   }
   // Create index on new column (must happen AFTER the ALTER TABLE)
   db.exec("CREATE INDEX IF NOT EXISTS idx_licenses_sub_admin ON licenses(created_by_sub_admin_id)");
@@ -153,8 +157,15 @@ function calculateExpiry(minutes, hours, days, isPermanent) {
 
 function isLicenseExpired(license) {
   if (license.is_permanent) return false;
+  if (!license.activated_at) return false; // not yet activated = pending, not expired
   if (!license.expires_at) return false;
   return new Date(license.expires_at) < new Date();
+}
+
+function getLicenseStatus(license) {
+  if (license.is_active === 0) return 'revoked';
+  if (!license.activated_at) return 'pending';
+  return isLicenseExpired(license) ? 'expired' : 'active';
 }
 
 function formatDuration(license) {
@@ -473,23 +484,24 @@ app.post('/api/sub-admin/licenses', authMiddleware, (req, res) => {
     if (attempts > 10) return res.status(500).json({ error: 'Failed to generate unique key.' });
   } while (db.prepare('SELECT id FROM licenses WHERE license_key = ?').get(license_key));
 
-  const expiresAt = calculateExpiry(mins, 0, 0, false);
   const metadataStr = typeof metadata === 'object' ? JSON.stringify(metadata) : metadata;
 
+  // expires_at starts NULL — clock starts ticking on first activation
   const result = db.prepare(`
     INSERT INTO licenses (license_key, user_email, user_name, is_active, is_permanent,
                           duration_minutes, duration_hours, duration_days, expires_at, notes, metadata, created_by_sub_admin_id)
-    VALUES (?, ?, ?, 1, 0, ?, 0, 0, ?, ?, ?, ?)
-  `).run(license_key, user_email, user_name, mins, expiresAt, notes, metadataStr, sub.id);
+    VALUES (?, ?, ?, 1, 0, ?, 0, 0, NULL, ?, ?, ?)
+  `).run(license_key, user_email, user_name, mins, notes, metadataStr, sub.id);
 
   const license = db.prepare('SELECT * FROM licenses WHERE id = ?').get(result.lastInsertRowid);
 
   res.status(201).json({
-    ...license,
-    status: 'active',
-    duration_display: formatDuration(license),
-    daily_usage: { used: todayCount + 1, limit: sub.max_daily_licenses },
-  });
+      ...license,
+      status: 'pending',
+      duration_display: formatDuration(license),
+      daily_usage: { used: todayCount + 1, limit: sub.max_daily_licenses },
+      message: 'License created. Clock will start on first activation.',
+    });
 });
 
 // ─── Sub-Admin Stats ───────────────────────────────────────────
@@ -513,8 +525,11 @@ app.get('/api/sub-admin/stats', authMiddleware, (req, res) => {
 
   const activeByMe = db.prepare(
     `SELECT COUNT(*) as count FROM licenses
-     WHERE created_by_sub_admin_id = ? AND is_active = 1
-     AND (is_permanent = 1 OR expires_at IS NULL OR expires_at > datetime('now'))`
+     WHERE created_by_sub_admin_id = ? AND is_active = 1 AND activated_at IS NOT NULL
+     AND (is_permanent = 1 OR expires_at > datetime('now'))`
+  ).get(req.user.id).count;
+  const pendingByMe = db.prepare(
+    'SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ? AND is_active = 1 AND activated_at IS NULL'
   ).get(req.user.id).count;
 
   res.json({
@@ -523,6 +538,7 @@ app.get('/api/sub-admin/stats', authMiddleware, (req, res) => {
     remaining_today: Math.max(0, sub.max_daily_licenses - todayCount),
     total_created: totalByMe,
     active: activeByMe,
+    pending: pendingByMe,
   });
 });
 
@@ -550,9 +566,11 @@ app.get('/api/licenses', authMiddleware, (req, res) => {
   }
 
   if (status === 'active') {
-    whereClauses.push("is_active = 1 AND (is_permanent = 1 OR expires_at IS NULL OR expires_at > datetime('now'))");
+    whereClauses.push("is_active = 1 AND activated_at IS NOT NULL AND (is_permanent = 1 OR expires_at > datetime('now'))");
+  } else if (status === 'pending') {
+    whereClauses.push("is_active = 1 AND activated_at IS NULL");
   } else if (status === 'expired') {
-    whereClauses.push("is_active = 1 AND is_permanent = 0 AND expires_at IS NOT NULL AND expires_at <= datetime('now')");
+    whereClauses.push("is_active = 1 AND is_permanent = 0 AND activated_at IS NOT NULL AND expires_at IS NOT NULL AND expires_at <= datetime('now')");
   } else if (status === 'revoked') {
     whereClauses.push('is_active = 0');
   }
@@ -573,22 +591,21 @@ app.get('/api/licenses', authMiddleware, (req, res) => {
   ).all(...params, limit, offset);
 
   const licenses = rows.map(row => ({
-    ...row,
-    status: row.is_active === 0 ? 'revoked' :
-            isLicenseExpired(row) ? 'expired' : 'active',
-    duration_display: formatDuration(row),
-  }));
-
-  res.json({
-    licenses,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-    },
+      ...row,
+      status: getLicenseStatus(row),
+      duration_display: formatDuration(row),
+    }));
+  
+    res.json({
+      licenses,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   });
-});
 
 // Generate new license (admin)
 app.post('/api/licenses', authMiddleware, (req, res) => {
@@ -627,23 +644,24 @@ app.post('/api/licenses', authMiddleware, (req, res) => {
     if (attempts > 10) return res.status(500).json({ error: 'Failed to generate unique key.' });
   } while (db.prepare('SELECT id FROM licenses WHERE license_key = ?').get(license_key));
 
-  const expiresAt = calculateExpiry(mins, hours, days, permanent);
   const metadataStr = typeof metadata === 'object' ? JSON.stringify(metadata) : metadata;
-
-  const result = db.prepare(`
-    INSERT INTO licenses (license_key, user_email, user_name, is_active, is_permanent,
-                          duration_minutes, duration_hours, duration_days, expires_at, notes, metadata, created_by_admin_id)
-    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(license_key, user_email, user_name, permanent ? 1 : 0,
-         mins, hours, days, expiresAt, notes, metadataStr, req.user.id);
+  
+    // expires_at starts NULL — clock starts ticking on first activation (via /api/validate)
+    const result = db.prepare(`
+      INSERT INTO licenses (license_key, user_email, user_name, is_active, is_permanent,
+                            duration_minutes, duration_hours, duration_days, expires_at, notes, metadata, created_by_admin_id)
+      VALUES (?, ?, ?, 1, ?, ?, ?, ?, NULL, ?, ?, ?)
+    `).run(license_key, user_email, user_name, permanent ? 1 : 0,
+           mins, hours, days, notes, metadataStr, req.user.id);
 
   const license = db.prepare('SELECT * FROM licenses WHERE id = ?').get(result.lastInsertRowid);
 
   res.status(201).json({
-    ...license,
-    status: 'active',
-    duration_display: formatDuration(license),
-  });
+      ...license,
+      status: 'pending',
+      duration_display: formatDuration(license),
+      message: 'License created. Clock will start on first activation.',
+    });
 });
 
 // Get single license
@@ -658,8 +676,7 @@ app.get('/api/licenses/:id', authMiddleware, (req, res) => {
 
   res.json({
     ...license,
-    status: license.is_active === 0 ? 'revoked' :
-            isLicenseExpired(license) ? 'expired' : 'active',
+    status: getLicenseStatus(license),
     duration_display: formatDuration(license),
   });
 });
@@ -717,8 +734,7 @@ app.put('/api/licenses/:id', authMiddleware, (req, res) => {
   const updated = db.prepare('SELECT * FROM licenses WHERE id = ?').get(req.params.id);
   res.json({
     ...updated,
-    status: updated.is_active === 0 ? 'revoked' :
-            isLicenseExpired(updated) ? 'expired' : 'active',
+    status: getLicenseStatus(updated),
     duration_display: formatDuration(updated),
   });
 });
@@ -761,27 +777,59 @@ app.post('/api/validate', validateLimiter, apiKeyMiddleware, (req, res) => {
   const trimmed = validations.slice(-100);
   const updatedMeta = { ...meta, validations: trimmed, last_ip: ip_address || req.ip };
 
-  const now = new Date();
-  const expired = !license.is_permanent && license.expires_at && new Date(license.expires_at) < now;
-
-  let status = { valid: true };
   if (!license.is_active) {
-    status = { valid: false, error: 'License has been revoked.', revoked_at: license.revoked_at };
-  } else if (expired) {
-    status = { valid: false, error: 'License has expired.', expires_at: license.expires_at };
+    const meta2 = JSON.stringify(updatedMeta);
+    db.prepare("UPDATE licenses SET last_validated_at = datetime('now'), metadata = ? WHERE id = ?")
+      .run(meta2, license.id);
+    return res.json({
+      valid: false, error: 'License has been revoked.', revoked_at: license.revoked_at,
+      license_key: license.license_key, is_permanent: !!license.is_permanent,
+      expires_at: null, created_at: license.created_at,
+    });
+  }
+
+  const now = new Date();
+
+  // ─── First activation? Set activated_at and calculate expires_at ───
+  if (!license.activated_at) {
+    const activatedAt = now.toISOString();
+    const expiresAt = calculateExpiry(
+      license.duration_minutes, license.duration_hours, license.duration_days,
+      !!license.is_permanent
+    );
+    db.prepare("UPDATE licenses SET activated_at = ?, expires_at = ?, last_validated_at = datetime('now'), metadata = ? WHERE id = ?")
+      .run(activatedAt, expiresAt, JSON.stringify(updatedMeta), license.id);
+    license.activated_at = activatedAt;
+    license.expires_at = expiresAt;
   } else {
     db.prepare("UPDATE licenses SET last_validated_at = datetime('now'), metadata = ? WHERE id = ?")
       .run(JSON.stringify(updatedMeta), license.id);
   }
 
+  // Check if expired now (post-activation)
+  const expired = !license.is_permanent && license.expires_at && new Date(license.expires_at) < now;
+
+  if (expired) {
+    return res.json({
+      valid: false, error: 'License has expired.', expires_at: license.expires_at,
+      license_key: license.license_key, is_permanent: !!license.is_permanent,
+      created_at: license.created_at,
+    });
+  }
+
+  const msRemaining = license.expires_at ? new Date(license.expires_at) - now : null;
+  const daysRemaining = msRemaining !== null ? Math.max(0, Math.floor(msRemaining / (1000 * 60 * 60 * 24))) : null;
+  const hoursRemaining = msRemaining !== null ? Math.max(0, Math.floor((msRemaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))) : null;
+  const minsRemaining = msRemaining !== null ? Math.max(0, Math.floor((msRemaining % (1000 * 60 * 60)) / (1000 * 60))) : null;
+
   res.json({
-    ...status,
+    valid: true,
     license_key: license.license_key,
     is_permanent: !!license.is_permanent,
+    activated_at: license.activated_at,
     expires_at: license.expires_at,
     created_at: license.created_at,
-    validations_remaining: !license.expires_at ? null :
-      Math.max(0, Math.floor((new Date(license.expires_at) - now) / (1000 * 60 * 60 * 24))),
+    time_remaining: msRemaining !== null ? { days: daysRemaining, hours: hoursRemaining, minutes: minsRemaining } : null,
   });
 });
 
@@ -793,36 +841,38 @@ app.get('/api/stats', authMiddleware, (req, res) => {
     const todayStart = new Date().toISOString().split('T')[0] + 'T00:00:00';
     const sub = db.prepare('SELECT max_daily_licenses FROM sub_admins WHERE id = ?').get(req.user.id);
     const total = db.prepare('SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ?').get(req.user.id).count;
-    const active = db.prepare(
-      `SELECT COUNT(*) as count FROM licenses
-       WHERE created_by_sub_admin_id = ? AND is_active = 1
-       AND (is_permanent = 1 OR expires_at IS NULL OR expires_at > datetime('now'))`
-    ).get(req.user.id).count;
-    const expired = db.prepare(
-      `SELECT COUNT(*) as count FROM licenses
-       WHERE created_by_sub_admin_id = ? AND is_active = 1 AND is_permanent = 0
-       AND expires_at IS NOT NULL AND expires_at <= datetime('now')`
-    ).get(req.user.id).count;
-    const revoked = db.prepare(
-      'SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ? AND is_active = 0'
-    ).get(req.user.id).count;
+        const active = db.prepare(
+          `SELECT COUNT(*) as count FROM licenses
+           WHERE created_by_sub_admin_id = ? AND is_active = 1 AND activated_at IS NOT NULL
+           AND (is_permanent = 1 OR expires_at > datetime('now'))`
+        ).get(req.user.id).count;
+        const pending = db.prepare(
+          'SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ? AND is_active = 1 AND activated_at IS NULL'
+        ).get(req.user.id).count;
+        const expired = db.prepare(
+          `SELECT COUNT(*) as count FROM licenses
+           WHERE created_by_sub_admin_id = ? AND is_active = 1 AND is_permanent = 0
+           AND activated_at IS NOT NULL AND expires_at IS NOT NULL AND expires_at <= datetime('now')`
+        ).get(req.user.id).count;
+        const revoked = db.prepare(
+          'SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ? AND is_active = 0'
+        ).get(req.user.id).count;
     const todayCount = db.prepare(
       'SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ? AND created_at >= ?'
     ).get(req.user.id, todayStart).count;
 
     const recent = db.prepare(
-      'SELECT id, license_key, created_at, is_active, expires_at, is_permanent FROM licenses WHERE created_by_sub_admin_id = ? ORDER BY created_at DESC LIMIT 5'
-    ).all(req.user.id).map(r => ({
-      ...r,
-      status: r.is_active === 0 ? 'revoked' :
-              !r.is_permanent && r.expires_at && new Date(r.expires_at) < new Date() ? 'expired' : 'active',
-    }));
-
-    return res.json({
-      total, active, expired, revoked,
-      expired_soon: 0, permanent: 0,
-      created_today: todayCount,
-      recent_licenses: recent,
+          'SELECT id, license_key, created_at, is_active, expires_at, is_permanent, activated_at FROM licenses WHERE created_by_sub_admin_id = ? ORDER BY created_at DESC LIMIT 5'
+        ).all(req.user.id).map(r => ({
+          ...r,
+          status: getLicenseStatus(r),
+        }));
+    
+        return res.json({
+          total, active, pending, expired, revoked,
+          expired_soon: 0, permanent: 0,
+          created_today: todayCount,
+          recent_licenses: recent,
       sub_admin_stats: {
         max_daily: sub.max_daily_licenses,
         used_today: todayCount,
@@ -835,35 +885,38 @@ app.get('/api/stats', authMiddleware, (req, res) => {
   const total = db.prepare('SELECT COUNT(*) as count FROM licenses').get().count;
   const active = db.prepare(
     `SELECT COUNT(*) as count FROM licenses
-     WHERE is_active = 1 AND (is_permanent = 1 OR expires_at IS NULL OR expires_at > datetime('now'))`
+     WHERE is_active = 1 AND activated_at IS NOT NULL AND (is_permanent = 1 OR expires_at > datetime('now'))`
+  ).get().count;
+  const pending = db.prepare(
+    `SELECT COUNT(*) as count FROM licenses WHERE is_active = 1 AND activated_at IS NULL`
   ).get().count;
   const expired = db.prepare(
     `SELECT COUNT(*) as count FROM licenses
-     WHERE is_active = 1 AND is_permanent = 0 AND expires_at IS NOT NULL AND expires_at <= datetime('now')`
+     WHERE is_active = 1 AND is_permanent = 0 AND activated_at IS NOT NULL
+     AND expires_at IS NOT NULL AND expires_at <= datetime('now')`
   ).get().count;
   const revoked = db.prepare('SELECT COUNT(*) as count FROM licenses WHERE is_active = 0').get().count;
   const expiredSoon = db.prepare(
     `SELECT COUNT(*) as count FROM licenses
-     WHERE is_active = 1 AND is_permanent = 0 AND expires_at IS NOT NULL
+     WHERE is_active = 1 AND is_permanent = 0 AND activated_at IS NOT NULL AND expires_at IS NOT NULL
      AND expires_at > datetime('now')
      AND expires_at <= datetime('now', '+7 days')`
   ).get().count;
-  const permanent = db.prepare('SELECT COUNT(*) as count FROM licenses WHERE is_permanent = 1 AND is_active = 1').get().count;
+  const permanent = db.prepare('SELECT COUNT(*) as count FROM licenses WHERE is_permanent = 1 AND is_active = 1 AND activated_at IS NOT NULL').get().count;
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const todayCount = db.prepare('SELECT COUNT(*) as count FROM licenses WHERE created_at >= ?').get(todayStart.toISOString()).count;
 
   const recent = db.prepare(
-    'SELECT id, license_key, created_at, is_active, expires_at, is_permanent FROM licenses ORDER BY created_at DESC LIMIT 5'
+    'SELECT id, license_key, created_at, is_active, expires_at, is_permanent, activated_at FROM licenses ORDER BY created_at DESC LIMIT 5'
   ).all().map(r => ({
     ...r,
-    status: r.is_active === 0 ? 'revoked' :
-            !r.is_permanent && r.expires_at && new Date(r.expires_at) < new Date() ? 'expired' : 'active',
+    status: getLicenseStatus(r),
   }));
 
   res.json({
-    total, active, expired, revoked,
+    total, active, pending, expired, revoked,
     expired_soon: expiredSoon, permanent,
     created_today: todayCount,
     recent_licenses: recent,
@@ -886,7 +939,7 @@ app.get('/api/licenses/export/csv', authMiddleware, (req, res) => {
     l.license_key,
     l.user_email,
     l.user_name,
-    l.is_active === 0 ? 'Revoked' : isLicenseExpired(l) ? 'Expired' : 'Active',
+    l.is_active === 0 ? 'Revoked' : !l.activated_at ? 'Pending' : isLicenseExpired(l) ? 'Expired' : 'Active',
     formatDuration(l),
     l.created_at,
     l.expires_at || (l.is_permanent ? 'Permanent' : 'N/A'),
