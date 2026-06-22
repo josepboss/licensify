@@ -64,6 +64,17 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS sub_admins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    max_daily_licenses INTEGER DEFAULT 10,
+    licenses_today INTEGER DEFAULT 0,
+    last_reset_date TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS licenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     license_key TEXT UNIQUE NOT NULL,
@@ -79,13 +90,26 @@ db.exec(`
     revoked_at TEXT,
     last_validated_at TEXT,
     notes TEXT DEFAULT '',
-    metadata TEXT DEFAULT '{}'
+    metadata TEXT DEFAULT '{}',
+    created_by_admin_id INTEGER DEFAULT NULL,
+    created_by_sub_admin_id INTEGER DEFAULT NULL
   );
 
   CREATE INDEX IF NOT EXISTS idx_licenses_key ON licenses(license_key);
   CREATE INDEX IF NOT EXISTS idx_licenses_active ON licenses(is_active);
   CREATE INDEX IF NOT EXISTS idx_licenses_expires ON licenses(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_licenses_sub_admin ON licenses(created_by_sub_admin_id);
 `);
+
+// --- Migration: add columns if missing (for existing databases) ---
+const tableInfo = db.prepare("PRAGMA table_info('licenses')").all();
+const existingCols = tableInfo.map(r => r.name);
+if (!existingCols.includes('created_by_admin_id')) {
+  db.exec("ALTER TABLE licenses ADD COLUMN created_by_admin_id INTEGER DEFAULT NULL");
+}
+if (!existingCols.includes('created_by_sub_admin_id')) {
+  db.exec("ALTER TABLE licenses ADD COLUMN created_by_sub_admin_id INTEGER DEFAULT NULL");
+}
 
 // Create default admin user if not exists
 const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get(ADMIN_USERNAME);
@@ -141,6 +165,15 @@ function formatDuration(license) {
   return parts.join(' ') || 'Custom';
 }
 
+function resetDailyCounts() {
+  const today = new Date().toISOString().split('T')[0];
+  db.prepare(`
+    UPDATE sub_admins 
+    SET licenses_today = 0, last_reset_date = ?
+    WHERE last_reset_date IS NULL OR last_reset_date != ?
+  `).run(today, today);
+}
+
 // ─── Middleware ────────────────────────────────────────────────
 
 function authMiddleware(req, res, next) {
@@ -158,12 +191,18 @@ function authMiddleware(req, res, next) {
   }
 }
 
+function adminOnly(req, res, next) {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  next();
+}
+
 function apiKeyMiddleware(req, res, next) {
   const key = req.headers['x-api-key'] || req.query.api_key;
   if (!key) {
     return res.status(401).json({ error: 'API key required.' });
   }
-  // Accept both the system API key and admin-generated keys
   if (key !== API_KEY) {
     return res.status(403).json({ error: 'Invalid API key.' });
   }
@@ -189,14 +228,14 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   }
 
   const token = jwt.sign(
-    { id: user.id, username: user.username },
+    { id: user.id, username: user.username, role: 'admin' },
     JWT_SECRET,
     { expiresIn: '24h' }
   );
 
   res.json({
     token,
-    user: { id: user.id, username: user.username },
+    user: { id: user.id, username: user.username, role: 'admin' },
     api_key: API_KEY,
   });
 });
@@ -206,9 +245,284 @@ app.post('/api/auth/logout', authMiddleware, (req, res) => {
 });
 
 app.get('/api/auth/me', authMiddleware, (req, res) => {
-  const user = db.prepare('SELECT id, username, created_at FROM users WHERE id = ?').get(req.user.id);
-  if (!user) return res.status(404).json({ error: 'User not found.' });
-  res.json({ user });
+  if (req.user.role === 'admin') {
+    const user = db.prepare('SELECT id, username, created_at FROM users WHERE id = ?').get(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found.' });
+    return res.json({ user: { ...user, role: 'admin' } });
+  }
+  // Sub-admin
+  const sub = db.prepare('SELECT id, username, max_daily_licenses, licenses_today, is_active, created_at FROM sub_admins WHERE id = ?').get(req.user.id);
+  if (!sub) return res.status(404).json({ error: 'User not found.' });
+  res.json({ user: { ...sub, role: 'sub_admin' } });
+});
+
+// ─── Change Password ───────────────────────────────────────────
+
+app.put('/api/auth/password', authMiddleware, (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password) {
+    return res.status(400).json({ error: 'Current and new password are required.' });
+  }
+  if (new_password.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  }
+
+  if (req.user.role === 'admin') {
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    if (!user || !bcrypt.compareSync(current_password, user.password_hash)) {
+      return res.status(401).json({ error: 'Current password is incorrect.' });
+    }
+    const hash = bcrypt.hashSync(new_password, 12);
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.user.id);
+  } else {
+    const sub = db.prepare('SELECT * FROM sub_admins WHERE id = ?').get(req.user.id);
+    if (!sub || !bcrypt.compareSync(current_password, sub.password_hash)) {
+      return res.status(401).json({ error: 'Current password is incorrect.' });
+    }
+    const hash = bcrypt.hashSync(new_password, 12);
+    db.prepare('UPDATE sub_admins SET password_hash = ? WHERE id = ?').run(hash, req.user.id);
+  }
+
+  res.json({ message: 'Password updated successfully.' });
+});
+
+// ─── Sub-Admin Auth ────────────────────────────────────────────
+
+app.post('/api/sub-admin/login', authLimiter, (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required.' });
+  }
+
+  const sub = db.prepare('SELECT * FROM sub_admins WHERE username = ?').get(username);
+  if (!sub) {
+    return res.status(401).json({ error: 'Invalid credentials.' });
+  }
+
+  if (!sub.is_active) {
+    return res.status(403).json({ error: 'Account has been deactivated.' });
+  }
+
+  const valid = bcrypt.compareSync(password, sub.password_hash);
+  if (!valid) {
+    return res.status(401).json({ error: 'Invalid credentials.' });
+  }
+
+  // Reset daily count if needed
+  resetDailyCounts();
+
+  const token = jwt.sign(
+    { id: sub.id, username: sub.username, role: 'sub_admin' },
+    JWT_SECRET,
+    { expiresIn: '24h' }
+  );
+
+  res.json({
+    token,
+    user: { id: sub.id, username: sub.username, role: 'sub_admin', max_daily_licenses: sub.max_daily_licenses },
+  });
+});
+
+// ─── Sub-Admin Management (Admin Only) ─────────────────────────
+
+app.get('/api/sub-admins', authMiddleware, adminOnly, (req, res) => {
+  resetDailyCounts();
+  const subs = db.prepare('SELECT id, username, max_daily_licenses, licenses_today, is_active, created_at FROM sub_admins ORDER BY created_at DESC').all();
+
+  // Add today's actual count from licenses table
+  const today = new Date().toISOString().split('T')[0];
+  const todayStart = today + 'T00:00:00';
+  const enriched = subs.map(s => {
+    const actualToday = db.prepare(
+      `SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ? AND created_at >= ?`
+    ).get(s.id, todayStart).count;
+    return { ...s, licenses_today: actualToday, remaining: s.max_daily_licenses - actualToday };
+  });
+
+  res.json(enriched);
+});
+
+app.post('/api/sub-admins', authMiddleware, adminOnly, (req, res) => {
+  const { username, password, max_daily_licenses = 10 } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required.' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  }
+  if (max_daily_licenses < 1 || max_daily_licenses > 1000) {
+    return res.status(400).json({ error: 'Daily license limit must be between 1 and 1000.' });
+  }
+
+  const existing = db.prepare('SELECT id FROM sub_admins WHERE username = ?').get(username);
+  if (existing) {
+    return res.status(409).json({ error: 'Username already exists.' });
+  }
+
+  const hash = bcrypt.hashSync(password, 12);
+  const result = db.prepare(
+    'INSERT INTO sub_admins (username, password_hash, max_daily_licenses) VALUES (?, ?, ?)'
+  ).run(username, hash, max_daily_licenses);
+
+  const sub = db.prepare('SELECT id, username, max_daily_licenses, is_active, created_at FROM sub_admins WHERE id = ?').get(result.lastInsertRowid);
+  res.status(201).json(sub);
+});
+
+app.put('/api/sub-admins/:id', authMiddleware, adminOnly, (req, res) => {
+  const sub = db.prepare('SELECT * FROM sub_admins WHERE id = ?').get(req.params.id);
+  if (!sub) return res.status(404).json({ error: 'Sub-admin not found.' });
+
+  const { max_daily_licenses, is_active, password } = req.body;
+  const updates = [];
+  const params = [];
+
+  if (max_daily_licenses !== undefined) {
+    if (max_daily_licenses < 1 || max_daily_licenses > 1000) {
+      return res.status(400).json({ error: 'Daily license limit must be between 1 and 1000.' });
+    }
+    updates.push('max_daily_licenses = ?');
+    params.push(max_daily_licenses);
+  }
+  if (is_active !== undefined) {
+    updates.push('is_active = ?');
+    params.push(is_active ? 1 : 0);
+  }
+  if (password) {
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    updates.push('password_hash = ?');
+    params.push(bcrypt.hashSync(password, 12));
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'Nothing to update.' });
+  }
+
+  params.push(req.params.id);
+  db.prepare(`UPDATE sub_admins SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+  const updated = db.prepare('SELECT id, username, max_daily_licenses, is_active, created_at FROM sub_admins WHERE id = ?').get(req.params.id);
+  res.json(updated);
+});
+
+app.delete('/api/sub-admins/:id', authMiddleware, adminOnly, (req, res) => {
+  const sub = db.prepare('SELECT id FROM sub_admins WHERE id = ?').get(req.params.id);
+  if (!sub) return res.status(404).json({ error: 'Sub-admin not found.' });
+
+  db.prepare('DELETE FROM sub_admins WHERE id = ?').run(req.params.id);
+  res.json({ message: 'Sub-admin deleted successfully.' });
+});
+
+// ─── Sub-Admin License Creation (Restricted) ───────────────────
+
+app.post('/api/sub-admin/licenses', authMiddleware, (req, res) => {
+  if (req.user.role !== 'sub_admin') {
+    return res.status(403).json({ error: 'Sub-admin access required.' });
+  }
+
+  const sub = db.prepare('SELECT * FROM sub_admins WHERE id = ?').get(req.user.id);
+  if (!sub || !sub.is_active) {
+    return res.status(403).json({ error: 'Account is inactive.' });
+  }
+
+  // Reset daily count if needed
+  resetDailyCounts();
+
+  // Check daily limit using actual license count
+  const todayStart = new Date().toISOString().split('T')[0] + 'T00:00:00';
+  const todayCount = db.prepare(
+    `SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ? AND created_at >= ?`
+  ).get(sub.id, todayStart).count;
+
+  if (todayCount >= sub.max_daily_licenses) {
+    return res.status(429).json({
+      error: `Daily license limit reached (${sub.max_daily_licenses}). Try again tomorrow.`,
+      limit: sub.max_daily_licenses,
+      used: todayCount,
+    });
+  }
+
+  const {
+    duration_minutes = 0,
+    duration_hours = 0,
+    duration_days = 0,
+    user_email = '',
+    user_name = '',
+    notes = '',
+    metadata = {},
+  } = req.body;
+
+  // Enforce sub-admin restrictions: max 15 minutes total
+  const mins = parseInt(duration_minutes) || 0;
+  const hours = parseInt(duration_hours) || 0;
+  const days = parseInt(duration_days) || 0;
+
+  if (days > 0 || hours > 0) {
+    return res.status(400).json({ error: 'Sub-admins can only create licenses with minute-based duration (max 15 min).' });
+  }
+  if (mins < 1 || mins > 15) {
+    return res.status(400).json({ error: 'Duration must be between 1 and 15 minutes.' });
+  }
+
+  // Generate unique key
+  let license_key;
+  let attempts = 0;
+  do {
+    license_key = generateLicenseKey();
+    attempts++;
+    if (attempts > 10) return res.status(500).json({ error: 'Failed to generate unique key.' });
+  } while (db.prepare('SELECT id FROM licenses WHERE license_key = ?').get(license_key));
+
+  const expiresAt = calculateExpiry(mins, 0, 0, false);
+  const metadataStr = typeof metadata === 'object' ? JSON.stringify(metadata) : metadata;
+
+  const result = db.prepare(`
+    INSERT INTO licenses (license_key, user_email, user_name, is_active, is_permanent,
+                          duration_minutes, duration_hours, duration_days, expires_at, notes, metadata, created_by_sub_admin_id)
+    VALUES (?, ?, ?, 1, 0, ?, 0, 0, ?, ?, ?, ?)
+  `).run(license_key, user_email, user_name, mins, expiresAt, notes, metadataStr, sub.id);
+
+  const license = db.prepare('SELECT * FROM licenses WHERE id = ?').get(result.lastInsertRowid);
+
+  res.status(201).json({
+    ...license,
+    status: 'active',
+    duration_display: formatDuration(license),
+    daily_usage: { used: todayCount + 1, limit: sub.max_daily_licenses },
+  });
+});
+
+// ─── Sub-Admin Stats ───────────────────────────────────────────
+
+app.get('/api/sub-admin/stats', authMiddleware, (req, res) => {
+  if (req.user.role !== 'sub_admin') {
+    return res.status(403).json({ error: 'Sub-admin access required.' });
+  }
+
+  resetDailyCounts();
+  const todayStart = new Date().toISOString().split('T')[0] + 'T00:00:00';
+
+  const sub = db.prepare('SELECT max_daily_licenses FROM sub_admins WHERE id = ?').get(req.user.id);
+  const todayCount = db.prepare(
+    `SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ? AND created_at >= ?`
+  ).get(req.user.id, todayStart).count;
+
+  const totalByMe = db.prepare(
+    'SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ?'
+  ).get(req.user.id).count;
+
+  const activeByMe = db.prepare(
+    `SELECT COUNT(*) as count FROM licenses
+     WHERE created_by_sub_admin_id = ? AND is_active = 1
+     AND (is_permanent = 1 OR expires_at IS NULL OR expires_at > datetime('now'))`
+  ).get(req.user.id).count;
+
+  res.json({
+    max_daily_licenses: sub.max_daily_licenses,
+    used_today: todayCount,
+    remaining_today: Math.max(0, sub.max_daily_licenses - todayCount),
+    total_created: totalByMe,
+    active: activeByMe,
+  });
 });
 
 // ─── License Routes ────────────────────────────────────────────
@@ -223,7 +537,6 @@ app.get('/api/licenses', authMiddleware, (req, res) => {
   const sortBy = req.query.sort_by || 'created_at';
   const sortOrder = req.query.sort_order === 'asc' ? 'ASC' : 'DESC';
 
-  // Whitelist sort columns to prevent SQL injection
   const validSorts = ['created_at', 'expires_at', 'license_key', 'id'];
   const sortCol = validSorts.includes(sortBy) ? sortBy : 'created_at';
 
@@ -236,11 +549,17 @@ app.get('/api/licenses', authMiddleware, (req, res) => {
   }
 
   if (status === 'active') {
-    whereClauses.push('is_active = 1 AND (is_permanent = 1 OR expires_at IS NULL OR expires_at > datetime(\'now\'))');
+    whereClauses.push("is_active = 1 AND (is_permanent = 1 OR expires_at IS NULL OR expires_at > datetime('now'))");
   } else if (status === 'expired') {
-    whereClauses.push('is_active = 1 AND is_permanent = 0 AND expires_at IS NOT NULL AND expires_at <= datetime(\'now\')');
+    whereClauses.push("is_active = 1 AND is_permanent = 0 AND expires_at IS NOT NULL AND expires_at <= datetime('now')");
   } else if (status === 'revoked') {
     whereClauses.push('is_active = 0');
+  }
+
+  // Sub-admins can only see their own licenses
+  if (req.user.role === 'sub_admin') {
+    whereClauses.push('created_by_sub_admin_id = ?');
+    params.push(req.user.id);
   }
 
   const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
@@ -252,7 +571,6 @@ app.get('/api/licenses', authMiddleware, (req, res) => {
     `SELECT * FROM licenses ${whereSQL} ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`
   ).all(...params, limit, offset);
 
-  // Add computed status to each row
   const licenses = rows.map(row => ({
     ...row,
     status: row.is_active === 0 ? 'revoked' :
@@ -271,8 +589,12 @@ app.get('/api/licenses', authMiddleware, (req, res) => {
   });
 });
 
-// Generate new license
+// Generate new license (admin)
 app.post('/api/licenses', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
   const {
     duration_minutes = 0,
     duration_hours = 0,
@@ -284,7 +606,6 @@ app.post('/api/licenses', authMiddleware, (req, res) => {
     metadata = {},
   } = req.body;
 
-  // Validate duration
   const mins = parseInt(duration_minutes) || 0;
   const hours = parseInt(duration_hours) || 0;
   const days = parseInt(duration_days) || 0;
@@ -297,7 +618,6 @@ app.post('/api/licenses', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Set a duration or mark as permanent.' });
   }
 
-  // Generate unique key
   let license_key;
   let attempts = 0;
   do {
@@ -311,10 +631,10 @@ app.post('/api/licenses', authMiddleware, (req, res) => {
 
   const result = db.prepare(`
     INSERT INTO licenses (license_key, user_email, user_name, is_active, is_permanent,
-                          duration_minutes, duration_hours, duration_days, expires_at, notes, metadata)
-    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+                          duration_minutes, duration_hours, duration_days, expires_at, notes, metadata, created_by_admin_id)
+    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(license_key, user_email, user_name, permanent ? 1 : 0,
-         mins, hours, days, expiresAt, notes, metadataStr);
+         mins, hours, days, expiresAt, notes, metadataStr, req.user.id);
 
   const license = db.prepare('SELECT * FROM licenses WHERE id = ?').get(result.lastInsertRowid);
 
@@ -330,6 +650,11 @@ app.get('/api/licenses/:id', authMiddleware, (req, res) => {
   const license = db.prepare('SELECT * FROM licenses WHERE id = ?').get(req.params.id);
   if (!license) return res.status(404).json({ error: 'License not found.' });
 
+  // Sub-admins can only view their own
+  if (req.user.role === 'sub_admin' && license.created_by_sub_admin_id !== req.user.id) {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+
   res.json({
     ...license,
     status: license.is_active === 0 ? 'revoked' :
@@ -343,6 +668,16 @@ app.put('/api/licenses/:id', authMiddleware, (req, res) => {
   const license = db.prepare('SELECT * FROM licenses WHERE id = ?').get(req.params.id);
   if (!license) return res.status(404).json({ error: 'License not found.' });
 
+  // Sub-admins can only update their own and can only revoke
+  if (req.user.role === 'sub_admin') {
+    if (license.created_by_sub_admin_id !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    if (req.body.is_active === undefined) {
+      return res.status(403).json({ error: 'Sub-admins can only revoke/reactivate licenses.' });
+    }
+  }
+
   const { is_active, user_email, user_name, notes } = req.body;
 
   const updates = [];
@@ -353,7 +688,7 @@ app.put('/api/licenses/:id', authMiddleware, (req, res) => {
     updates.push('is_active = ?');
     params.push(newActive);
     if (!is_active) {
-      updates.push('revoked_at = datetime(\'now\')');
+      updates.push("revoked_at = datetime('now')");
     } else {
       updates.push('revoked_at = NULL');
     }
@@ -387,8 +722,11 @@ app.put('/api/licenses/:id', authMiddleware, (req, res) => {
   });
 });
 
-// Delete license
+// Delete license (admin only)
 app.delete('/api/licenses/:id', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
   const license = db.prepare('SELECT * FROM licenses WHERE id = ?').get(req.params.id);
   if (!license) return res.status(404).json({ error: 'License not found.' });
 
@@ -412,7 +750,6 @@ app.post('/api/validate', validateLimiter, apiKeyMiddleware, (req, res) => {
     });
   }
 
-  // Track validation
   const meta = license.metadata ? JSON.parse(license.metadata) : {};
   const validations = meta.validations || [];
   validations.push({
@@ -420,7 +757,6 @@ app.post('/api/validate', validateLimiter, apiKeyMiddleware, (req, res) => {
     device: device_info || 'unknown',
     timestamp: new Date().toISOString(),
   });
-  // Keep last 100 validations
   const trimmed = validations.slice(-100);
   const updatedMeta = { ...meta, validations: trimmed, last_ip: ip_address || req.ip };
 
@@ -433,8 +769,7 @@ app.post('/api/validate', validateLimiter, apiKeyMiddleware, (req, res) => {
   } else if (expired) {
     status = { valid: false, error: 'License has expired.', expires_at: license.expires_at };
   } else {
-    // Update last validated timestamp
-    db.prepare('UPDATE licenses SET last_validated_at = datetime(\'now\'), metadata = ? WHERE id = ?')
+    db.prepare("UPDATE licenses SET last_validated_at = datetime('now'), metadata = ? WHERE id = ?")
       .run(JSON.stringify(updatedMeta), license.id);
   }
 
@@ -452,6 +787,50 @@ app.post('/api/validate', validateLimiter, apiKeyMiddleware, (req, res) => {
 // ─── Stats Route ───────────────────────────────────────────────
 
 app.get('/api/stats', authMiddleware, (req, res) => {
+  // Sub-admins get their own stats
+  if (req.user.role === 'sub_admin') {
+    const todayStart = new Date().toISOString().split('T')[0] + 'T00:00:00';
+    const sub = db.prepare('SELECT max_daily_licenses FROM sub_admins WHERE id = ?').get(req.user.id);
+    const total = db.prepare('SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ?').get(req.user.id).count;
+    const active = db.prepare(
+      `SELECT COUNT(*) as count FROM licenses
+       WHERE created_by_sub_admin_id = ? AND is_active = 1
+       AND (is_permanent = 1 OR expires_at IS NULL OR expires_at > datetime('now'))`
+    ).get(req.user.id).count;
+    const expired = db.prepare(
+      `SELECT COUNT(*) as count FROM licenses
+       WHERE created_by_sub_admin_id = ? AND is_active = 1 AND is_permanent = 0
+       AND expires_at IS NOT NULL AND expires_at <= datetime('now')`
+    ).get(req.user.id).count;
+    const revoked = db.prepare(
+      'SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ? AND is_active = 0'
+    ).get(req.user.id).count;
+    const todayCount = db.prepare(
+      'SELECT COUNT(*) as count FROM licenses WHERE created_by_sub_admin_id = ? AND created_at >= ?'
+    ).get(req.user.id, todayStart).count;
+
+    const recent = db.prepare(
+      'SELECT id, license_key, created_at, is_active, expires_at, is_permanent FROM licenses WHERE created_by_sub_admin_id = ? ORDER BY created_at DESC LIMIT 5'
+    ).all(req.user.id).map(r => ({
+      ...r,
+      status: r.is_active === 0 ? 'revoked' :
+              !r.is_permanent && r.expires_at && new Date(r.expires_at) < new Date() ? 'expired' : 'active',
+    }));
+
+    return res.json({
+      total, active, expired, revoked,
+      expired_soon: 0, permanent: 0,
+      created_today: todayCount,
+      recent_licenses: recent,
+      sub_admin_stats: {
+        max_daily: sub.max_daily_licenses,
+        used_today: todayCount,
+        remaining: Math.max(0, sub.max_daily_licenses - todayCount),
+      },
+    });
+  }
+
+  // Admin stats
   const total = db.prepare('SELECT COUNT(*) as count FROM licenses').get().count;
   const active = db.prepare(
     `SELECT COUNT(*) as count FROM licenses
@@ -472,11 +851,8 @@ app.get('/api/stats', authMiddleware, (req, res) => {
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
-  const todayCount = db.prepare(
-    `SELECT COUNT(*) as count FROM licenses WHERE created_at >= ?`
-  ).get(todayStart.toISOString()).count;
+  const todayCount = db.prepare('SELECT COUNT(*) as count FROM licenses WHERE created_at >= ?').get(todayStart.toISOString()).count;
 
-  // Recent licenses
   const recent = db.prepare(
     'SELECT id, license_key, created_at, is_active, expires_at, is_permanent FROM licenses ORDER BY created_at DESC LIMIT 5'
   ).all().map(r => ({
@@ -486,12 +862,8 @@ app.get('/api/stats', authMiddleware, (req, res) => {
   }));
 
   res.json({
-    total,
-    active,
-    expired,
-    revoked,
-    expired_soon: expiredSoon,
-    permanent,
+    total, active, expired, revoked,
+    expired_soon: expiredSoon, permanent,
     created_today: todayCount,
     recent_licenses: recent,
   });
@@ -500,7 +872,12 @@ app.get('/api/stats', authMiddleware, (req, res) => {
 // ─── Export CSV ────────────────────────────────────────────────
 
 app.get('/api/licenses/export/csv', authMiddleware, (req, res) => {
-  const licenses = db.prepare('SELECT * FROM licenses ORDER BY created_at DESC').all();
+  let licenses;
+  if (req.user.role === 'sub_admin') {
+    licenses = db.prepare('SELECT * FROM licenses WHERE created_by_sub_admin_id = ? ORDER BY created_at DESC').all(req.user.id);
+  } else {
+    licenses = db.prepare('SELECT * FROM licenses ORDER BY created_at DESC').all();
+  }
 
   const headers = ['ID', 'License Key', 'User Email', 'User Name', 'Status', 'Duration', 'Created At', 'Expires At', 'Notes'];
   const rows = licenses.map(l => [
@@ -522,7 +899,7 @@ app.get('/api/licenses/export/csv', authMiddleware, (req, res) => {
   res.send(csv);
 });
 
-// ─── Serve SPA (all unmatched routes go to index.html) ─────────
+// ─── Serve SPA ─────────────────────────────────────────────────
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found.' });
@@ -538,7 +915,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('  ║  License Management System                   ║');
   console.log('  ╠══════════════════════════════════════════════╣');
   console.log(`  ║  Server:     http://0.0.0.0:${PORT}                 ║`);
-      console.log(`  ║  Dashboard:  http://localhost:${PORT}                ║`);
+  console.log(`  ║  Dashboard:  http://localhost:${PORT}                ║`);
   console.log('  ║  API Key:    ' + API_KEY.substring(0, 16) + '...          ║');
   console.log('  ║  Database:   SQLite (licenses.db)            ║');
   console.log('  ╚══════════════════════════════════════════════╝');

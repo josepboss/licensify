@@ -31,6 +31,7 @@
     .nav-item { cursor: pointer; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 500; color: #94A3B8; transition: all 0.15s ease; }
     .nav-item:hover { background: #1E293B; color: #E2E8F0; }
     .nav-item.active { background: #1D4ED8; color: white; }
+    .nav-item.sub-admin-nav { background: #1E3A5F; color: #93C5FD; }
     .card { background: white; border-radius: 12px; border: 1px solid #E2E8F0; transition: all 0.2s ease; }
     .dark .card { background: #1E293B; border-color: #334155; }
     .stat-card { padding: 20px 24px; }
@@ -53,6 +54,7 @@
     .input-field:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
     .dark .input-field { background: #1E293B; border-color: #334155; color: #E2E8F0; }
     .dark .input-field:focus { border-color: #3B82F6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
+    .input-field:disabled { opacity: 0.5; cursor: not-allowed; }
     .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 9999px; font-size: 12px; font-weight: 500; }
     .badge-active { background: #D1FAE5; color: #065F46; }
     .dark .badge-active { background: rgba(16, 185, 129, 0.15); color: #34D399; }
@@ -60,6 +62,8 @@
     .dark .badge-expired { background: rgba(245, 158, 11, 0.15); color: #FBBF24; }
     .badge-revoked { background: #FEE2E2; color: #991B1B; }
     .dark .badge-revoked { background: rgba(239, 68, 68, 0.15); color: #F87171; }
+    .badge-info { background: #DBEAFE; color: #1E40AF; }
+    .dark .badge-info { background: rgba(59, 130, 246, 0.15); color: #60A5FA; }
     .toast { position: fixed; top: 20px; right: 20px; padding: 14px 20px; border-radius: 10px; color: white; font-size: 14px; font-weight: 500; z-index: 1000; box-shadow: 0 10px 25px rgba(0,0,0,0.15); transform: translateX(120%); transition: transform 0.3s ease; }
     .toast.show { transform: translateX(0); }
     .toast-success { background: #10B981; }
@@ -67,7 +71,7 @@
     .toast-info { background: #3B82F6; }
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 50; display: none; align-items: center; justify-content: center; }
     .modal-overlay.show { display: flex; }
-    .modal-box { background: white; border-radius: 16px; padding: 28px; max-width: 480px; width: 90%; box-shadow: 0 25px 50px rgba(0,0,0,0.25); }
+    .modal-box { background: white; border-radius: 16px; padding: 28px; max-width: 520px; width: 90%; box-shadow: 0 25px 50px rgba(0,0,0,0.25); max-height: 90vh; overflow-y: auto; }
     .dark .modal-box { background: #1E293B; }
     .pagination-btn { padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid #E2E8F0; background: white; color: #475569; transition: all 0.15s ease; }
     .pagination-btn:hover { background: #F1F5F9; }
@@ -87,7 +91,6 @@
 </head>
 <body class="bg-gray-50 text-gray-900 dark:bg-slate-900 dark:text-gray-100">
 
-  <!-- Toast container -->
   <div id="toast" class="toast"></div>
 
   <!-- Login Screen -->
@@ -95,15 +98,17 @@
     <div class="w-full max-w-md fade-in">
       <div class="text-center mb-8">
         <div class="inline-flex items-center justify-center w-16 h-16 bg-primary-500/20 rounded-2xl mb-4">
-          <svg class="w-8 h-8 text-primary-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
+          <svg class="w-8 h-8 text-primary-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
         </div>
         <h1 class="text-3xl font-bold text-white tracking-tight">Licensify</h1>
         <p class="text-slate-400 mt-2 text-sm">License Management System</p>
       </div>
       <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-8">
-        <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-6">Sign in to your account</h2>
+        <!-- Login tabs -->
+        <div class="flex mb-6 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+          <button id="loginTabAdmin" class="flex-1 py-2 text-sm font-medium rounded-md bg-white dark:bg-slate-600 shadow-sm text-primary-600 dark:text-primary-400" onclick="switchLoginTab('admin')">Admin</button>
+          <button id="loginTabSub" class="flex-1 py-2 text-sm font-medium rounded-md text-slate-500 dark:text-slate-400" onclick="switchLoginTab('sub')">Sub-Admin</button>
+        </div>
         <form id="loginForm" class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Username</label>
@@ -111,14 +116,14 @@
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Password</label>
-            <input type="password" id="password" value="admin123" class="input-field" placeholder="Enter password" required>
+            <input type="password" id="password" class="input-field" placeholder="Enter password" required>
           </div>
-          <button type="submit" class="btn btn-primary w-full py-3 text-base font-semibold">
+          <button type="submit" id="loginBtn" class="btn btn-primary w-full py-3 text-base font-semibold">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/></svg>
-            Sign In
+            <span id="loginBtnText">Sign In as Admin</span>
           </button>
         </form>
-        <p class="text-xs text-slate-400 mt-4 text-center">Default credentials: admin / admin123</p>
+        <p class="text-xs text-slate-400 mt-4 text-center">Default admin: admin / admin123</p>
       </div>
     </div>
   </div>
@@ -127,12 +132,9 @@
   <div id="dashboardScreen" class="hidden min-h-screen flex">
     <!-- Sidebar -->
     <aside class="sidebar fixed inset-y-0 left-0 z-40 w-64 bg-sidebar-900 flex flex-col sidebar-transition">
-      <!-- Logo -->
       <div class="flex items-center gap-3 px-5 h-16 border-b border-white/5">
         <div class="flex-shrink-0 w-9 h-9 bg-primary-500 rounded-lg flex items-center justify-center">
-          <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
+          <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
         </div>
         <div>
           <h1 class="text-base font-bold text-white tracking-tight">Licensify</h1>
@@ -140,7 +142,6 @@
         </div>
       </div>
 
-      <!-- Nav -->
       <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         <div class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
@@ -154,10 +155,24 @@
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
           <span>Generate</span>
         </div>
+        <div class="nav-item" data-view="settings" onclick="switchView('settings')">
+          <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <span>Settings</span>
+        </div>
       </nav>
 
-      <!-- Bottom actions -->
       <div class="px-3 py-3 border-t border-white/5 space-y-1">
+        <!-- Sub-admin daily usage indicator -->
+        <div id="subAdminUsageBar" class="hidden px-3 py-2 mb-1">
+          <div class="flex items-center justify-between text-xs mb-1.5">
+            <span class="text-slate-400">Today's Usage</span>
+            <span id="subUsageText" class="text-primary-400 font-medium">0 / 0</span>
+          </div>
+          <div class="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
+            <div id="subUsageBarFill" class="h-full bg-primary-500 rounded-full transition-all" style="width: 0%"></div>
+          </div>
+        </div>
+
         <button onclick="toggleTheme()" class="nav-item w-full">
           <svg id="themeIconLight" class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
           <svg id="themeIconDark" class="w-5 h-5 flex-shrink-0 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
@@ -172,7 +187,6 @@
 
     <!-- Main Content -->
     <main class="flex-1 ml-64 min-h-screen">
-      <!-- Top bar -->
       <header class="sticky top-0 z-30 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-b border-slate-200 dark:border-slate-700/50">
         <div class="flex items-center justify-between px-6 h-16">
           <div>
@@ -180,14 +194,14 @@
             <p id="viewSubtitle" class="text-xs text-slate-500 dark:text-slate-400">Overview of your license system</p>
           </div>
           <div class="flex items-center gap-3">
-            <span class="text-xs text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full font-mono">
+            <span id="roleBadge" class="badge badge-info text-xs"></span>
+            <span id="apiKeyDisplayWrap" class="text-xs text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full font-mono">
               API Key: <span id="apiKeyDisplay" class="text-primary-500"></span>
             </span>
           </div>
         </div>
       </header>
 
-      <!-- Content area -->
       <div class="p-6">
         <!-- Dashboard View -->
         <div id="viewDashboard" class="view-content">
@@ -248,12 +262,30 @@
               </div>
             </div>
           </div>
+
+          <!-- Sub-admin dashboard card (extra) -->
+          <div id="subAdminDashboardCard" class="hidden card p-5 mb-6 border-primary-200 dark:border-primary-500/30">
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-3">My Daily Usage</h3>
+            <div id="subAdminDashboardStats" class="grid grid-cols-3 gap-4">
+              <div class="text-center p-3 bg-primary-50 dark:bg-primary-500/5 rounded-lg">
+                <p class="text-2xl font-bold text-primary-600 dark:text-primary-400" id="subDashUsed">0</p>
+                <p class="text-xs text-slate-500 mt-1">Used Today</p>
+              </div>
+              <div class="text-center p-3 bg-emerald-50 dark:bg-emerald-500/5 rounded-lg">
+                <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400" id="subDashRemaining">0</p>
+                <p class="text-xs text-slate-500 mt-1">Remaining</p>
+              </div>
+              <div class="text-center p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                <p class="text-2xl font-bold text-slate-700 dark:text-slate-300" id="subDashLimit">0</p>
+                <p class="text-xs text-slate-500 mt-1">Daily Limit</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Licenses View -->
         <div id="viewLicenses" class="view-content hidden">
           <div class="card">
-            <!-- Toolbar -->
             <div class="p-4 border-b border-slate-200 dark:border-slate-700/50">
               <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
                 <div class="flex-1 flex flex-wrap gap-2 items-center">
@@ -280,7 +312,6 @@
                 </div>
               </div>
             </div>
-            <!-- Table -->
             <div class="overflow-x-auto">
               <table class="w-full text-sm">
                 <thead>
@@ -299,7 +330,6 @@
                 </tbody>
               </table>
             </div>
-            <!-- Pagination -->
             <div id="pagination" class="px-4 py-3 border-t border-slate-200 dark:border-slate-700/50 flex items-center justify-between">
               <span id="paginationInfo" class="text-xs text-slate-500">Showing 0 of 0</span>
               <div id="paginationButtons" class="flex gap-1"></div>
@@ -310,6 +340,20 @@
         <!-- Generate View -->
         <div id="viewGenerate" class="view-content hidden">
           <div class="max-w-2xl mx-auto">
+            <!-- Sub-admin daily limit warning -->
+            <div id="subAdminLimitNotice" class="hidden card p-4 mb-4 border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/5">
+              <div class="flex items-start gap-3">
+                <svg class="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <div>
+                  <p class="text-sm font-medium text-amber-800 dark:text-amber-300">Sub-Admin Mode</p>
+                  <p class="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                    You can only create licenses with <strong>1–15 minute durations</strong>.
+                    Daily limit: <span id="subLimitText">0 / 0</span> used.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div class="card p-6 md:p-8">
               <div class="flex items-center gap-3 mb-6">
                 <div class="w-10 h-10 bg-primary-50 dark:bg-primary-500/10 rounded-xl flex items-center justify-center">
@@ -322,7 +366,6 @@
               </div>
 
               <form id="generateForm" class="space-y-5">
-                <!-- User details -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">User Name</label>
@@ -334,7 +377,6 @@
                   </div>
                 </div>
 
-                <!-- Duration picker -->
                 <div>
                   <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">License Duration</label>
                   <div class="grid grid-cols-3 gap-3">
@@ -353,13 +395,11 @@
                   </div>
                 </div>
 
-                <!-- Permanent toggle -->
                 <div class="flex items-center gap-3">
                   <input type="checkbox" id="genPermanent" class="w-4 h-4 rounded border-slate-300 text-primary-500 focus:ring-primary-500 cursor-pointer">
                   <label for="genPermanent" class="text-sm text-slate-700 dark:text-slate-300 cursor-pointer font-medium">Permanent — never expires</label>
                 </div>
 
-                <!-- Notes -->
                 <div>
                   <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Notes (optional)</label>
                   <textarea id="genNotes" rows="2" class="input-field resize-none" placeholder="Internal notes about this license"></textarea>
@@ -372,7 +412,6 @@
               </form>
             </div>
 
-            <!-- Result -->
             <div id="generatedResult" class="hidden card p-6 mt-4 border-primary-200 dark:border-primary-500/30">
               <div class="text-center">
                 <div class="w-14 h-14 bg-emerald-50 dark:bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -395,6 +434,88 @@
             </div>
           </div>
         </div>
+
+        <!-- Settings View -->
+        <div id="viewSettings" class="view-content hidden">
+          <div class="max-w-3xl mx-auto space-y-6">
+            <!-- Change Password -->
+            <div class="card p-6 md:p-8">
+              <div class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 bg-primary-50 dark:bg-primary-500/10 rounded-xl flex items-center justify-center">
+                  <svg class="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                </div>
+                <div>
+                  <h2 class="text-lg font-bold text-slate-900 dark:text-white">Change Password</h2>
+                  <p class="text-xs text-slate-500">Update your account password</p>
+                </div>
+              </div>
+              <form id="passwordForm" class="space-y-4 max-w-sm">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Current Password</label>
+                  <input type="password" id="pwCurrent" class="input-field" placeholder="Enter current password" required>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">New Password</label>
+                  <input type="password" id="pwNew" class="input-field" placeholder="Enter new password (min 6 chars)" required minlength="6">
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Confirm New Password</label>
+                  <input type="password" id="pwConfirm" class="input-field" placeholder="Confirm new password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                  Update Password
+                </button>
+              </form>
+            </div>
+
+            <!-- Sub-Admin Management (Admin Only) -->
+            <div id="subAdminSection" class="hidden card p-6 md:p-8">
+              <div class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 bg-primary-50 dark:bg-primary-500/10 rounded-xl flex items-center justify-center">
+                  <svg class="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"/></svg>
+                </div>
+                <div>
+                  <h2 class="text-lg font-bold text-slate-900 dark:text-white">Sub-Admin Management</h2>
+                  <p class="text-xs text-slate-500">Create and manage sub-admins with restricted license creation</p>
+                </div>
+              </div>
+
+              <!-- Add sub-admin form -->
+              <div class="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-5 mb-6">
+                <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-4">Add New Sub-Admin</h3>
+                <form id="addSubAdminForm" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">Username</label>
+                    <input type="text" id="subAdminUsername" class="input-field" placeholder="username" required>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">Password</label>
+                    <input type="password" id="subAdminPassword" class="input-field" placeholder="min 6 chars" required minlength="6">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">Daily License Limit</label>
+                    <input type="number" id="subAdminLimit" value="10" min="1" max="1000" class="input-field text-center">
+                  </div>
+                  <div class="sm:col-span-3">
+                    <button type="submit" class="btn btn-primary w-full">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+                      Add Sub-Admin
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <!-- Sub-admin list -->
+              <div>
+                <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-3">Sub-Admins</h3>
+                <div id="subAdminList" class="space-y-3">
+                  <p class="text-sm text-slate-400">Loading...</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   </div>
@@ -403,7 +524,7 @@
   <div id="confirmModal" class="modal-overlay">
     <div class="modal-box fade-in">
       <h3 id="modalTitle" class="text-lg font-bold text-slate-900 dark:text-white mb-2">Confirm Action</h3>
-      <p id="modalMessage" class="text-sm text-slate-600 dark:text-slate-400 mb-6">Are you sure?</p>
+      <div id="modalMessage" class="text-sm text-slate-600 dark:text-slate-400 mb-6">Are you sure?</div>
       <div class="flex gap-3 justify-end">
         <button onclick="closeModal()" class="btn btn-secondary">Cancel</button>
         <button id="modalConfirmBtn" class="btn btn-danger">Confirm</button>
@@ -416,22 +537,34 @@
     const API_BASE = '/api';
     let token = localStorage.getItem('licensify_token') || '';
     let apiKey = localStorage.getItem('licensify_api_key') || '';
+    let userRole = localStorage.getItem('licensify_role') || '';
     let currentPage = 1;
     let searchTimeout = null;
-    let modalResolve = null;
 
     // ─── Auth ──────────────────────────────────────────────────
+
+    let loginMode = 'admin'; // 'admin' or 'sub'
+    function switchLoginTab(mode) {
+      loginMode = mode;
+      document.getElementById('loginTabAdmin').className = `flex-1 py-2 text-sm font-medium rounded-md ${mode === 'admin' ? 'bg-white dark:bg-slate-600 shadow-sm text-primary-600 dark:text-primary-400' : 'text-slate-500 dark:text-slate-400'}`;
+      document.getElementById('loginTabSub').className = `flex-1 py-2 text-sm font-medium rounded-md ${mode === 'sub' ? 'bg-white dark:bg-slate-600 shadow-sm text-primary-600 dark:text-primary-400' : 'text-slate-500 dark:text-slate-400'}`;
+      document.getElementById('loginBtnText').textContent = mode === 'admin' ? 'Sign In as Admin' : 'Sign In as Sub-Admin';
+      document.getElementById('username').value = mode === 'admin' ? 'admin' : '';
+      document.getElementById('password').value = '';
+      document.getElementById('username').placeholder = mode === 'admin' ? 'Admin username' : 'Sub-admin username';
+    }
 
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
-      const btn = e.target.querySelector('button');
+      const btn = document.getElementById('loginBtn');
       btn.disabled = true;
-      btn.textContent = 'Signing in...';
+      btn.innerHTML = '<svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Signing in...';
 
       try {
-        const res = await fetch(`${API_BASE}/auth/login`, {
+        const endpoint = loginMode === 'admin' ? '/auth/login' : '/sub-admin/login';
+        const res = await fetch(`${API_BASE}${endpoint}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
@@ -440,24 +573,28 @@
         if (!res.ok) throw new Error(data.error || 'Login failed');
 
         token = data.token;
-        apiKey = data.api_key;
+        apiKey = data.api_key || '';
+        userRole = data.user.role || loginMode;
         localStorage.setItem('licensify_token', token);
         localStorage.setItem('licensify_api_key', apiKey);
-        showToast('Welcome back!', 'success');
+        localStorage.setItem('licensify_role', userRole);
+        showToast(`Welcome ${data.user.username}!`, 'success');
         initDashboard();
       } catch (err) {
         showToast(err.message, 'error');
       } finally {
         btn.disabled = false;
         btn.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/></svg>
-            Sign In`;
+            <span id="loginBtnText">${loginMode === 'admin' ? 'Sign In as Admin' : 'Sign In as Sub-Admin'}</span>`;
       }
     });
 
     function logout() {
       localStorage.removeItem('licensify_token');
       localStorage.removeItem('licensify_api_key');
+      localStorage.removeItem('licensify_role');
       token = '';
+      userRole = '';
       document.getElementById('dashboardScreen').classList.add('hidden');
       document.getElementById('loginScreen').classList.remove('hidden');
       showToast('Logged out', 'info');
@@ -468,13 +605,24 @@
     function initDashboard() {
       document.getElementById('loginScreen').classList.add('hidden');
       document.getElementById('dashboardScreen').classList.remove('hidden');
-      document.getElementById('apiKeyDisplay').textContent = apiKey.substring(0, 16) + '...';
+      document.getElementById('roleBadge').textContent = userRole === 'admin' ? 'Admin' : 'Sub-Admin';
+      document.getElementById('apiKeyDisplayWrap').style.display = userRole === 'admin' ? '' : 'none';
+      document.getElementById('apiKeyDisplay').textContent = apiKey ? apiKey.substring(0, 16) + '...' : '';
+
+      // Show/hide sub-admin elements
+      document.getElementById('subAdminUsageBar').classList.toggle('hidden', userRole !== 'sub_admin');
+      document.getElementById('subAdminSection').classList.toggle('hidden', userRole !== 'admin');
+
+      if (userRole === 'sub_admin') {
+        loadSubAdminUsage();
+      }
+
       loadDashboard();
       switchView('dashboard');
     }
 
     // Auto-login check
-    if (token) {
+    if (token && userRole) {
       initDashboard();
     }
 
@@ -485,9 +633,10 @@
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
 
       const titles = {
-        dashboard: ['Dashboard', 'Overview of your license system'],
+        dashboard: ['Dashboard', userRole === 'sub_admin' ? 'Your license activity' : 'Overview of your license system'],
         licenses: ['Licenses', 'Manage all license keys'],
         generate: ['Generate License', 'Create a new license key'],
+        settings: ['Settings', 'Account & user management'],
       };
 
       document.getElementById(`view${view.charAt(0).toUpperCase() + view.slice(1)}`).classList.remove('hidden');
@@ -499,6 +648,29 @@
 
       if (view === 'dashboard') loadDashboard();
       if (view === 'licenses') loadLicenses(currentPage);
+      if (view === 'settings' && userRole === 'admin') loadSubAdmins();
+      if (view === 'settings' && userRole === 'sub_admin') loadSubAdminUsage();
+    }
+
+    // ─── Sub-Admin Usage Sidebar ───────────────────────────────
+
+    async function loadSubAdminUsage() {
+      try {
+        const res = await fetch(`${API_BASE}/sub-admin/stats`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        document.getElementById('subUsageText').textContent = `${data.used_today} / ${data.max_daily_licenses}`;
+        const pct = data.max_daily_licenses > 0 ? (data.used_today / data.max_daily_licenses) * 100 : 0;
+        document.getElementById('subUsageBarFill').style.width = Math.min(pct, 100) + '%';
+        if (pct >= 90) document.getElementById('subUsageBarFill').className = 'h-full bg-red-500 rounded-full transition-all';
+        else if (pct >= 70) document.getElementById('subUsageBarFill').className = 'h-full bg-amber-500 rounded-full transition-all';
+        else document.getElementById('subUsageBarFill').className = 'h-full bg-primary-500 rounded-full transition-all';
+      } catch (err) {
+        if (err.message.includes('401')) return logout();
+      }
     }
 
     // ─── Dashboard ─────────────────────────────────────────────
@@ -514,12 +686,23 @@
         document.getElementById('statTotal').textContent = data.total;
         document.getElementById('statActive').textContent = data.active;
         document.getElementById('statExpired').textContent = data.expired;
-        document.getElementById('statExpiring').textContent = data.expired_soon;
+        document.getElementById('statExpiring').textContent = data.expired_soon || 0;
         document.getElementById('statActiveDetail').textContent = data.active;
         document.getElementById('statExpiredDetail').textContent = data.expired;
         document.getElementById('statRevokedDetail').textContent = data.revoked;
-        document.getElementById('statPermanent').textContent = data.permanent;
+        document.getElementById('statPermanent').textContent = data.permanent || 0;
         document.getElementById('statToday').textContent = data.created_today;
+
+        // Sub-admin dashboard card
+        const subCard = document.getElementById('subAdminDashboardCard');
+        if (data.sub_admin_stats) {
+          subCard.classList.remove('hidden');
+          document.getElementById('subDashUsed').textContent = data.sub_admin_stats.used_today;
+          document.getElementById('subDashRemaining').textContent = data.sub_admin_stats.remaining;
+          document.getElementById('subDashLimit').textContent = data.sub_admin_stats.max_daily;
+        } else {
+          subCard.classList.add('hidden');
+        }
 
         const recentEl = document.getElementById('recentLicenses');
         if (data.recent_licenses.length === 0) {
@@ -621,9 +804,11 @@
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
                 </button>
               `}
-              <button onclick="confirmDelete(${l.id})" class="btn-ghost btn text-red-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10" title="Delete">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-              </button>
+              ${userRole === 'admin' ? `
+                <button onclick="confirmDelete(${l.id})" class="btn-ghost btn text-red-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10" title="Delete">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+              ` : ''}
             </div>
           </td>
         </tr>`;
@@ -639,13 +824,11 @@
 
       let html = '';
       if (p.page > 1) html += `<button class="pagination-btn" onclick="loadLicenses(${p.page - 1})">Prev</button>`;
-
       const start = Math.max(1, p.page - 2);
       const end = Math.min(p.totalPages, p.page + 2);
       for (let i = start; i <= end; i++) {
         html += `<button class="pagination-btn ${i === p.page ? 'active' : ''}" onclick="loadLicenses(${i})">${i}</button>`;
       }
-
       if (p.page < p.totalPages) html += `<button class="pagination-btn" onclick="loadLicenses(${p.page + 1})">Next</button>`;
       container.innerHTML = html;
     }
@@ -655,7 +838,7 @@
       searchTimeout = setTimeout(() => loadLicenses(1), 300);
     }
 
-    // ─── License actions ───────────────────────────────────────
+    // ─── License Actions ───────────────────────────────────────
 
     async function viewLicense(id) {
       try {
@@ -699,7 +882,7 @@
 
     function confirmReactivate(id) {
       showModal('Reactivate License',
-        'This will re-activate the license and set the revoked_at to null.',
+        'This will re-activate the license and clear the revoked timestamp.',
         async () => {
           await updateLicense(id, { is_active: true });
           showToast('License reactivated', 'success');
@@ -737,11 +920,36 @@
 
     // ─── Generate License ─────────────────────────────────────
 
+    // Configure generate form based on user role
+    function configureGenerateForm() {
+      const isSub = userRole === 'sub_admin';
+      document.getElementById('genDays').disabled = isSub;
+      document.getElementById('genDays').classList.toggle('opacity-50', isSub);
+      document.getElementById('genHours').disabled = isSub;
+      document.getElementById('genHours').classList.toggle('opacity-50', isSub);
+      document.getElementById('genPermanent').disabled = isSub;
+      document.getElementById('genPermanent').classList.toggle('opacity-50', isSub);
+
+      if (isSub) {
+        document.getElementById('genDays').value = 0;
+        document.getElementById('genHours').value = 0;
+        document.getElementById('genMinutes').value = 5;
+        document.getElementById('genPermanent').checked = false;
+        document.getElementById('genMinutes').max = 15;
+        document.getElementById('genMinutes').placeholder = '1-15';
+        document.getElementById('subAdminLimitNotice').classList.remove('hidden');
+      } else {
+        document.getElementById('genMinutes').max = 59;
+        document.getElementById('genMinutes').placeholder = '';
+        document.getElementById('subAdminLimitNotice').classList.add('hidden');
+      }
+    }
+
     document.getElementById('generateForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('genSubmitBtn');
       btn.disabled = true;
-      btn.innerHTML = `<svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Generating...`;
+      btn.innerHTML = '<svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Generating...';
 
       try {
         const body = {
@@ -754,7 +962,8 @@
           notes: document.getElementById('genNotes').value,
         };
 
-        const res = await fetch(`${API_BASE}/licenses`, {
+        const endpoint = userRole === 'sub_admin' ? '/sub-admin/licenses' : '/licenses';
+        const res = await fetch(`${API_BASE}${endpoint}`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
@@ -770,6 +979,13 @@
 
         showToast('License key generated!', 'success');
         loadDashboard();
+        if (userRole === 'sub_admin') {
+          loadSubAdminUsage();
+          // Update sidebar usage
+          if (license.daily_usage) {
+            document.getElementById('subUsageText').textContent = `${license.daily_usage.used} / ${license.daily_usage.limit}`;
+          }
+        }
       } catch (err) {
         showToast(err.message, 'error');
       } finally {
@@ -779,7 +995,6 @@
       }
     });
 
-    // Disable duration inputs when permanent is checked
     document.getElementById('genPermanent').addEventListener('change', function() {
       const inputs = ['genDays', 'genHours', 'genMinutes'];
       inputs.forEach(id => {
@@ -793,7 +1008,6 @@
       navigator.clipboard.writeText(key).then(() => {
         showToast('License key copied!', 'success');
       }).catch(() => {
-        // Fallback
         const range = document.createRange();
         range.selectNode(document.getElementById('generatedKey'));
         window.getSelection().removeAllRanges();
@@ -801,6 +1015,163 @@
         document.execCommand('copy');
         showToast('License key copied!', 'success');
       });
+    }
+
+    // ─── Change Password ───────────────────────────────────────
+
+    document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const current = document.getElementById('pwCurrent').value;
+      const newPw = document.getElementById('pwNew').value;
+      const confirm = document.getElementById('pwConfirm').value;
+
+      if (newPw !== confirm) {
+        showToast('New passwords do not match.', 'error');
+        return;
+      }
+      if (newPw.length < 6) {
+        showToast('Password must be at least 6 characters.', 'error');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/auth/password`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ current_password: current, new_password: newPw })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        showToast('Password updated successfully!', 'success');
+        document.getElementById('passwordForm').reset();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
+    // ─── Sub-Admin Management ──────────────────────────────────
+
+    async function loadSubAdmins() {
+      const container = document.getElementById('subAdminList');
+      try {
+        const res = await fetch(`${API_BASE}/sub-admins`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const subs = await res.json();
+        if (!res.ok) throw new Error(subs.error);
+
+        if (subs.length === 0) {
+          container.innerHTML = '<p class="text-sm text-slate-400 text-center py-8">No sub-admins created yet.</p>';
+          return;
+        }
+
+        container.innerHTML = subs.map(s => `
+          <div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-full bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center">
+                <span class="text-sm font-bold text-primary-600 dark:text-primary-400">${s.username.charAt(0).toUpperCase()}</span>
+              </div>
+              <div>
+                <p class="text-sm font-medium text-slate-900 dark:text-white">${s.username}</p>
+                <p class="text-xs text-slate-400">Created ${formatDate(s.created_at)}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-4">
+              <div class="text-right">
+                <p class="text-xs text-slate-500">Daily Limit</p>
+                <p class="text-sm font-semibold ${s.remaining < 0 ? 'text-red-500' : s.remaining < 3 ? 'text-amber-500' : 'text-emerald-500'}">
+                  ${s.licenses_today} / ${s.max_daily_licenses}
+                </p>
+              </div>
+              <span class="badge ${s.is_active ? 'badge-active' : 'badge-revoked'}">${s.is_active ? 'Active' : 'Inactive'}</span>
+              <button onclick="editSubAdmin(${s.id}, '${s.username}', ${s.max_daily_licenses})" class="btn-ghost btn" title="Edit">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
+              <button onclick="deleteSubAdmin(${s.id}, '${s.username}')" class="btn-ghost btn text-red-400 hover:text-red-500" title="Delete">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        if (err.message.includes('401')) return logout();
+        container.innerHTML = `<p class="text-sm text-red-400">${err.message}</p>`;
+      }
+    }
+
+    document.getElementById('addSubAdminForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('subAdminUsername').value;
+      const password = document.getElementById('subAdminPassword').value;
+      const limit = parseInt(document.getElementById('subAdminLimit').value) || 10;
+
+      try {
+        const res = await fetch(`${API_BASE}/sub-admins`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, max_daily_licenses: limit })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        showToast(`Sub-admin "${username}" created!`, 'success');
+        document.getElementById('addSubAdminForm').reset();
+        document.getElementById('subAdminLimit').value = 10;
+        loadSubAdmins();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+
+    function editSubAdmin(id, username, currentLimit) {
+      showModal('Edit Sub-Admin',
+        `<div class="space-y-4 text-sm">
+          <p>Editing <strong>${username}</strong></p>
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1">Daily License Limit</label>
+            <input type="number" id="editSubLimit" value="${currentLimit}" min="1" max="1000" class="input-field">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1">New Password (leave blank to keep current)</label>
+            <input type="password" id="editSubPassword" class="input-field" placeholder="min 6 chars" minlength="6">
+          </div>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="editSubToggleActive" checked class="w-4 h-4 rounded border-slate-300 text-primary-500">
+            <span class="text-sm text-slate-700 dark:text-slate-300">Account Active</span>
+          </label>
+        </div>`,
+        async () => {
+          const body = {
+            max_daily_licenses: parseInt(document.getElementById('editSubLimit').value) || 10,
+            is_active: document.getElementById('editSubToggleActive').checked,
+          };
+          const newPw = document.getElementById('editSubPassword').value;
+          if (newPw) body.password = newPw;
+
+          const res = await fetch(`${API_BASE}/sub-admins/${id}`, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          showToast('Sub-admin updated!', 'success');
+          loadSubAdmins();
+        }, 'Save Changes', 'btn-primary');
+    }
+
+    function deleteSubAdmin(id, username) {
+      showModal('Delete Sub-Admin',
+        `Are you sure you want to delete <strong>${username}</strong>? Licenses they created will remain but they will lose access.`,
+        async () => {
+          const res = await fetch(`${API_BASE}/sub-admins/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          showToast(`Sub-admin "${username}" deleted`, 'success');
+          loadSubAdmins();
+        }, 'Delete', 'btn-danger');
     }
 
     // ─── Export CSV ────────────────────────────────────────────
@@ -839,11 +1210,12 @@
       document.getElementById('themeLabel').textContent = isDark ? 'Light Mode' : 'Dark Mode';
     }
 
-    // Load saved theme
-    const savedTheme = localStorage.getItem('licensify_theme') || 'light';
+    const savedTheme = localStorage.getItem('licensify_theme') || 'dark';
     if (savedTheme === 'dark') {
       document.documentElement.classList.add('dark');
       updateThemeUI(true);
+    } else {
+      updateThemeUI(false);
     }
 
     // ─── Modal ─────────────────────────────────────────────────
@@ -855,7 +1227,6 @@
       document.getElementById('modalConfirmBtn').className = `btn ${confirmClass || 'btn-danger'}`;
       document.getElementById('confirmModal').classList.add('show');
 
-      // Remove old listeners
       const newBtn = document.getElementById('modalConfirmBtn').cloneNode(true);
       document.getElementById('modalConfirmBtn').replaceWith(newBtn);
 
@@ -872,7 +1243,6 @@
         newBtn.addEventListener('click', closeModal);
       }
 
-      // Close on overlay click
       document.getElementById('confirmModal').onclick = (e) => {
         if (e.target === document.getElementById('confirmModal')) closeModal();
       };
@@ -882,7 +1252,6 @@
       document.getElementById('confirmModal').classList.remove('show');
     }
 
-    // Close modal on Escape
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeModal();
     });
@@ -910,6 +1279,14 @@
       clearTimeout(toast._timeout);
       toast._timeout = setTimeout(() => toast.classList.remove('show'), 3500);
     }
+
+    // Initialize form config on view switch to generate
+    const origSwitchView = switchView;
+    switchView = function(view) {
+      origSwitchView(view);
+      if (view === 'generate') configureGenerateForm();
+      if (view === 'dashboard' && userRole === 'sub_admin') loadSubAdminUsage();
+    };
   </script>
 </body>
 </html>
