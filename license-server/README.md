@@ -187,7 +187,7 @@ Authorization: Bearer <your-jwt-token>
 ### Validate a License Key (Public API)
 
 ```bash
-curl -X POST http://localhost:3000/api/validate \
+curl -X POST http://localhost:7008/api/validate \
   -H "Content-Type: application/json" \
   -H "x-api-key: your-api-key" \
   -d '{"license_key": "ABCD-1234-EFGH-5678"}'
@@ -220,7 +220,7 @@ curl -X POST http://localhost:3000/api/validate \
 ### Generate a License
 
 ```bash
-curl -X POST http://localhost:3000/api/licenses \
+curl -X POST http://localhost:7008/api/licenses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-jwt-token" \
   -d '{
