@@ -98,18 +98,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_licenses_key ON licenses(license_key);
   CREATE INDEX IF NOT EXISTS idx_licenses_active ON licenses(is_active);
   CREATE INDEX IF NOT EXISTS idx_licenses_expires ON licenses(expires_at);
-  CREATE INDEX IF NOT EXISTS idx_licenses_sub_admin ON licenses(created_by_sub_admin_id);
-`);
-
-// --- Migration: add columns if missing (for existing databases) ---
-const tableInfo = db.prepare("PRAGMA table_info('licenses')").all();
-const existingCols = tableInfo.map(r => r.name);
-if (!existingCols.includes('created_by_admin_id')) {
-  db.exec("ALTER TABLE licenses ADD COLUMN created_by_admin_id INTEGER DEFAULT NULL");
-}
-if (!existingCols.includes('created_by_sub_admin_id')) {
-  db.exec("ALTER TABLE licenses ADD COLUMN created_by_sub_admin_id INTEGER DEFAULT NULL");
-}
+  `);
+  
+  // --- Migration: add columns if missing (for existing databases) ---
+  const tableInfo = db.prepare("PRAGMA table_info('licenses')").all();
+  const existingCols = tableInfo.map(r => r.name);
+  if (!existingCols.includes('created_by_admin_id')) {
+    db.exec("ALTER TABLE licenses ADD COLUMN created_by_admin_id INTEGER DEFAULT NULL");
+  }
+  if (!existingCols.includes('created_by_sub_admin_id')) {
+    db.exec("ALTER TABLE licenses ADD COLUMN created_by_sub_admin_id INTEGER DEFAULT NULL");
+  }
+  // Create index on new column (must happen AFTER the ALTER TABLE)
+  db.exec("CREATE INDEX IF NOT EXISTS idx_licenses_sub_admin ON licenses(created_by_sub_admin_id)");
 
 // Create default admin user if not exists
 const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get(ADMIN_USERNAME);
