@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 
 // ─── Configuration ─────────────────────────────────────────────
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 7008;
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
@@ -537,8 +537,8 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('  ║          🔑 Licensify v1.0                   ║');
   console.log('  ║  License Management System                   ║');
   console.log('  ╠══════════════════════════════════════════════╣');
-  console.log(`  ║  Server:     http://0.0.0.0:${PORT}              ║`);
-  console.log(`  ║  Dashboard:  http://localhost:${PORT}              ║`);
+  console.log(`  ║  Server:     http://0.0.0.0:${PORT}                 ║`);
+      console.log(`  ║  Dashboard:  http://localhost:${PORT}                ║`);
   console.log('  ║  API Key:    ' + API_KEY.substring(0, 16) + '...          ║');
   console.log('  ║  Database:   SQLite (licenses.db)            ║');
   console.log('  ╚══════════════════════════════════════════════╝');

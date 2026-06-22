@@ -41,7 +41,7 @@ npm run dev
 Open your browser and navigate to:
 
 ```
-http://localhost:3000
+http://localhost:7008
 ```
 
 **Default login credentials:**
@@ -93,7 +93,7 @@ npm install --production
 ```bash
 # Create a .env file for custom configuration
 cat > /opt/licensify/.env << 'EOF'
-PORT=3000
+PORT=7008
 JWT_SECRET=your-very-secret-key-here
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your-strong-password-here
@@ -134,7 +134,7 @@ server {
     server_name your-domain.com;
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:7008;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
