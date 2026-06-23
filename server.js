@@ -10,10 +10,30 @@ const fs = require('fs');
 
 // ─── Configuration ─────────────────────────────────────────────
 const PORT = process.env.PORT || 7008;
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+// JWT secret: env var > .jwt_secret file > generate and persist
+const jwtSecretPath = path.join(__dirname, '.jwt_secret');
+let JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET && fs.existsSync(jwtSecretPath)) {
+  JWT_SECRET = fs.readFileSync(jwtSecretPath, 'utf8').trim();
+}
+if (!JWT_SECRET) {
+  JWT_SECRET = crypto.randomBytes(64).toString('hex');
+  fs.writeFileSync(jwtSecretPath, JWT_SECRET);
+}
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
-const API_KEY = process.env.API_KEY || crypto.randomBytes(32).toString('hex');
+
+// API key: env var > .api_key file > generate and persist
+const apiKeyPath = path.join(__dirname, '.api_key');
+let API_KEY = process.env.API_KEY;
+if (!API_KEY && fs.existsSync(apiKeyPath)) {
+  API_KEY = fs.readFileSync(apiKeyPath, 'utf8').trim();
+}
+if (!API_KEY) {
+  API_KEY = crypto.randomBytes(32).toString('hex');
+  fs.writeFileSync(apiKeyPath, API_KEY);
+  console.log(`✓ API key saved to .api_key`);
+}
 
 // ─── App Setup ─────────────────────────────────────────────────
 const app = express();
@@ -122,13 +142,6 @@ if (!adminExists) {
   const hash = bcrypt.hashSync(ADMIN_PASSWORD, 12);
   db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(ADMIN_USERNAME, hash);
   console.log('✓ Default admin user created');
-}
-
-// Save API key to a file for reference
-const apiKeyPath = path.join(__dirname, '.api_key');
-if (!fs.existsSync(apiKeyPath)) {
-  fs.writeFileSync(apiKeyPath, API_KEY);
-  console.log(`✓ API key saved to .api_key`);
 }
 
 // ─── Helper Functions ──────────────────────────────────────────
