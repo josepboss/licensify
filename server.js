@@ -177,6 +177,11 @@ function formatDuration(license) {
   return parts.join(' ') || 'Custom';
 }
 
+function formatDateStr(isoStr) {
+  const d = new Date(isoStr);
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 function resetDailyCounts() {
   const today = new Date().toISOString().split('T')[0];
   db.prepare(`
@@ -739,6 +744,63 @@ app.put('/api/licenses/:id', authMiddleware, (req, res) => {
   });
 });
 
+// Extend license duration (admin only)
+app.post('/api/licenses/:id/extend', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  const license = db.prepare('SELECT * FROM licenses WHERE id = ?').get(req.params.id);
+  if (!license) return res.status(404).json({ error: 'License not found.' });
+  if (!license.is_active) return res.status(400).json({ error: 'Cannot extend a revoked license. Reactivate it first.' });
+
+  const { minutes, hours, days } = req.body;
+  const addMins = parseInt(minutes) || 0;
+  const addHours = parseInt(hours) || 0;
+  const addDays = parseInt(days) || 0;
+
+  if (addMins <= 0 && addHours <= 0 && addDays <= 0) {
+    return res.status(400).json({ error: 'At least one duration field (minutes/hours/days) with a positive value is required.' });
+  }
+
+  const now = new Date();
+
+  // ─── If license was never activated, activate it now ───
+  if (!license.activated_at) {
+    const expiresAt = calculateExpiry(addMins, addHours, addDays, false);
+    db.prepare("UPDATE licenses SET activated_at = ?, expires_at = ?, duration_minutes = ?, duration_hours = ?, duration_days = ?, notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?")
+      .run(now.toISOString(), expiresAt, addMins, addHours, addDays, `Extended: +${addMins}m ${addHours}h ${addDays}d (activated on extend)`, `Extended: +${addMins}m ${addHours}h ${addDays}d (activated on extend)`, license.id);
+    const updated = db.prepare('SELECT * FROM licenses WHERE id = ?').get(license.id);
+    return res.json({
+      ...updated,
+      status: getLicenseStatus(updated),
+      duration_display: formatDuration(updated),
+      message: `License activated and extended by ${addMins}m ${addHours}h ${addDays}d. Expires ${formatDateStr(expiresAt)}`,
+    });
+  }
+
+  // ─── License was activated — add time ───
+  // If already expired, start from now; otherwise add to current expires_at
+  const baseTime = isLicenseExpired(license) ? now : new Date(license.expires_at);
+  const newExpires = new Date(baseTime);
+  newExpires.setMinutes(newExpires.getMinutes() + addMins);
+  newExpires.setHours(newExpires.getHours() + addHours);
+  newExpires.setDate(newExpires.getDate() + addDays);
+  const newExpiresStr = newExpires.toISOString();
+
+  const note = `Extended: +${addMins}m ${addHours}h ${addDays}d (new expiry: ${newExpiresStr.slice(0, 10)})`;
+  db.prepare("UPDATE licenses SET expires_at = ?, duration_minutes = duration_minutes + ?, duration_hours = duration_hours + ?, duration_days = duration_days + ?, notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '\n' || ? END WHERE id = ?")
+    .run(newExpiresStr, addMins, addHours, addDays, note, note, license.id);
+
+  const updated = db.prepare('SELECT * FROM licenses WHERE id = ?').get(license.id);
+  res.json({
+    ...updated,
+    status: getLicenseStatus(updated),
+    duration_display: formatDuration(updated),
+    message: `License extended by ${addMins}m ${addHours}h ${addDays}d. New expiry: ${formatDateStr(newExpiresStr)}`,
+  });
+});
+
 // Delete license (admin only)
 app.delete('/api/licenses/:id', authMiddleware, (req, res) => {
   if (req.user.role !== 'admin') {
@@ -747,7 +809,7 @@ app.delete('/api/licenses/:id', authMiddleware, (req, res) => {
   const license = db.prepare('SELECT * FROM licenses WHERE id = ?').get(req.params.id);
   if (!license) return res.status(404).json({ error: 'License not found.' });
 
-  db.prepare('DELETE FROM licenses WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM licenses WHERE id = ?').run(license.id);
   res.json({ message: 'License deleted successfully.' });
 });
 

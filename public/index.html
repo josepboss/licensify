@@ -820,10 +820,13 @@
                 </button>
               `}
               ${userRole === 'admin' ? `
-                <button onclick="confirmDelete(${l.id})" class="btn-ghost btn text-red-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10" title="Delete">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                </button>
-              ` : ''}
+                              <button onclick="showExtendModal(${l.id})" class="btn-ghost btn text-primary-500 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-500/10" title="Extend duration">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                              </button>
+                              <button onclick="confirmDelete(${l.id})" class="btn-ghost btn text-red-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10" title="Delete">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                              </button>
+                            ` : ''}
             </div>
           </td>
         </tr>`;
@@ -878,7 +881,8 @@
             </div>
             ${license.activated_at ? `<p class="text-xs text-slate-400">Activated: ${formatDate(license.activated_at)}</p>` : '<p class="text-xs text-blue-400">Not yet activated — clock hasn\'t started</p>'}
                         ${license.last_validated_at ? `<p class="text-xs text-slate-400">Last validated: ${formatDate(license.last_validated_at)}</p>` : ''}
-            ${license.notes ? `<div class="pt-2 border-t border-slate-100 dark:border-slate-700"><span class="text-slate-400">Notes:</span><p class="text-slate-600 dark:text-slate-300 mt-1">${license.notes}</p></div>` : ''}
+            ${license.notes ? `<div class="pt-2 border-t border-slate-100 dark:border-slate-700"><span class="text-slate-400">Notes:</span><p class="text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-line">${license.notes}</p></div>` : ''}
+            ${userRole === 'admin' && license.is_active ? `<div class="pt-2 border-t border-slate-100 dark:border-slate-700"><button onclick="closeModal(); setTimeout(() => showExtendModal(${license.id}), 100)" class="btn btn-primary w-full mt-2 flex items-center justify-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg> Extend Duration</button></div>` : ''}
           </div>`, null, 'Close', null, 'btn-secondary');
       } catch (err) {
         showToast(err.message, 'error');
@@ -908,20 +912,60 @@
     }
 
     function confirmDelete(id) {
-      showModal('Delete License',
-        'This will permanently delete this license. This action cannot be undone.',
-        async () => {
-          const res = await fetch(`${API_BASE}/licenses/${id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error);
-          showToast('License deleted', 'success');
-          loadLicenses(currentPage);
-          loadDashboard();
-        }, 'Delete', 'btn-danger');
-    }
+          showModal('Delete License',
+            'This will permanently delete this license. This action cannot be undone.',
+            async () => {
+              const res = await fetch(`${API_BASE}/licenses/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error);
+              showToast('License deleted', 'success');
+              loadLicenses(currentPage);
+              loadDashboard();
+            }, 'Delete', 'btn-danger');
+        }
+    
+        function showExtendModal(id) {
+          showModal('Extend License Duration',
+            `<div class="space-y-4">
+              <p class="text-sm text-slate-400">Add extra time to this license. If it's expired, the clock starts from now. If still active, time is added to the current expiry.</p>
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Days</label>
+                  <input id="extendDays" type="number" min="0" value="0" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Hours</label>
+                  <input id="extendHours" type="number" min="0" value="0" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Minutes</label>
+                  <input id="extendMinutes" type="number" min="0" value="0" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                </div>
+              </div>
+            </div>`,
+            async () => {
+              const days = parseInt(document.getElementById('extendDays').value) || 0;
+              const hours = parseInt(document.getElementById('extendHours').value) || 0;
+              const minutes = parseInt(document.getElementById('extendMinutes').value) || 0;
+              if (days <= 0 && hours <= 0 && minutes <= 0) {
+                showToast('Enter a positive duration', 'error');
+                throw new Error('Invalid duration');
+              }
+              const res = await fetch(`${API_BASE}/licenses/${id}/extend`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ days, hours, minutes })
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error);
+              showToast(data.message || 'License extended', 'success');
+              loadLicenses(currentPage);
+              loadDashboard();
+            }, 'Extend', 'btn-primary');
+        }
 
     async function updateLicense(id, data) {
       const res = await fetch(`${API_BASE}/licenses/${id}`, {
