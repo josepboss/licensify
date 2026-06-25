@@ -898,17 +898,47 @@ app.post('/api/validate', validateLimiter, apiKeyMiddleware, (req, res) => {
   const minsRemaining = msRemaining !== null ? Math.max(0, Math.floor((msRemaining % (1000 * 60 * 60)) / (1000 * 60))) : null;
 
   res.json({
-    valid: true,
-    license_key: license.license_key,
-    is_permanent: !!license.is_permanent,
-    activated_at: license.activated_at,
-    expires_at: license.expires_at,
-    created_at: license.created_at,
-    time_remaining: msRemaining !== null ? { days: daysRemaining, hours: hoursRemaining, minutes: minsRemaining } : null,
+      valid: true,
+      license_key: license.license_key,
+      is_permanent: !!license.is_permanent,
+      activated_at: license.activated_at,
+      expires_at: license.expires_at,
+      created_at: license.created_at,
+      time_remaining: msRemaining !== null ? { days: daysRemaining, hours: hoursRemaining, minutes: minsRemaining } : null,
+    });
   });
-});
-
-// ─── Stats Route ───────────────────────────────────────────────
+  
+  // ─── Heartbeat check (lightweight, for client-side polling) ──
+  // Doesn't track validations or trigger activation — just returns revoke/expiry status.
+  app.post('/api/check-license', validateLimiter, apiKeyMiddleware, (req, res) => {
+    const { license_key } = req.body;
+    if (!license_key) {
+      return res.status(400).json({ error: 'License key is required.' });
+    }
+  
+    const license = db.prepare('SELECT id, license_key, is_active, is_permanent, activated_at, expires_at FROM licenses WHERE license_key = ?').get(license_key);
+    if (!license) {
+      return res.json({ valid: false, revoked: false, expired: false, error: 'License not found.' });
+    }
+  
+    if (!license.is_active) {
+      return res.json({ valid: false, revoked: true, expired: false, error: 'License has been revoked.' });
+    }
+  
+    // Not activated yet — still treated as valid (clock hasn't started)
+    if (!license.activated_at) {
+      return res.json({ valid: true, revoked: false, expired: false, expires_at: null, activated: false });
+    }
+  
+    const expired = !license.is_permanent && license.expires_at && new Date(license.expires_at) < new Date();
+    if (expired) {
+      return res.json({ valid: false, revoked: false, expired: true, error: 'License has expired.', expires_at: license.expires_at });
+    }
+  
+    res.json({ valid: true, revoked: false, expired: false, expires_at: license.expires_at, activated: true });
+  });
+  
+  // ─── Stats Route ───────────────────────────────────────────────
 
 app.get('/api/stats', authMiddleware, (req, res) => {
   // Sub-admins get their own stats
