@@ -472,6 +472,7 @@ app.post('/api/sub-admin/licenses', authMiddleware, (req, res) => {
   }
 
   const {
+    is_permanent = false,
     duration_minutes = 0,
     duration_hours = 0,
     duration_days = 0,
@@ -481,16 +482,13 @@ app.post('/api/sub-admin/licenses', authMiddleware, (req, res) => {
     metadata = {},
   } = req.body;
 
-  // Enforce sub-admin restrictions: max 15 minutes total
+  // Enforce sub-admin restrictions
   const mins = parseInt(duration_minutes) || 0;
   const hours = parseInt(duration_hours) || 0;
   const days = parseInt(duration_days) || 0;
 
-  if (days > 0 || hours > 0) {
-    return res.status(400).json({ error: 'Sub-admins can only create licenses with minute-based duration (max 15 min).' });
-  }
-  if (mins < 1 || mins > 15) {
-    return res.status(400).json({ error: 'Duration must be between 1 and 15 minutes.' });
+  if (mins <= 0 && hours <= 0 && days <= 0) {
+    return res.status(400).json({ error: 'At least one duration field (days/hours/minutes) with a positive value is required.' });
   }
 
   // Generate unique key
@@ -505,11 +503,12 @@ app.post('/api/sub-admin/licenses', authMiddleware, (req, res) => {
   const metadataStr = typeof metadata === 'object' ? JSON.stringify(metadata) : metadata;
 
   // expires_at starts NULL — clock starts ticking on first activation
-  const result = db.prepare(`
-    INSERT INTO licenses (license_key, user_email, user_name, is_active, is_permanent,
-                          duration_minutes, duration_hours, duration_days, expires_at, notes, metadata, created_by_sub_admin_id)
-    VALUES (?, ?, ?, 1, 0, ?, 0, 0, NULL, ?, ?, ?)
-  `).run(license_key, user_email, user_name, mins, notes, metadataStr, sub.id);
+    const permanent = is_permanent ? 1 : 0;
+    const result = db.prepare(`
+      INSERT INTO licenses (license_key, user_email, user_name, is_active, is_permanent,
+                            duration_minutes, duration_hours, duration_days, expires_at, notes, metadata, created_by_sub_admin_id)
+      VALUES (?, ?, ?, 1, ?, ?, ?, ?, NULL, ?, ?, ?)
+    `).run(license_key, user_email, user_name, permanent, mins, hours, days, notes, metadataStr, sub.id);
 
   const license = db.prepare('SELECT * FROM licenses WHERE id = ?').get(result.lastInsertRowid);
 

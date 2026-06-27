@@ -359,8 +359,7 @@
                 <div>
                   <p class="text-sm font-medium text-amber-800 dark:text-amber-300">Sub-Admin Mode</p>
                   <p class="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                    You can only create licenses with <strong>1–15 minute durations</strong>.
-                    Daily limit: <span id="subLimitText">0 / 0</span> used.
+                    Daily limit: <span id="subLimitText">0 / 0</span> used today.
                   </p>
                 </div>
               </div>
@@ -982,28 +981,9 @@
 
     // Configure generate form based on user role
     function configureGenerateForm() {
-      const isSub = userRole === 'sub_admin';
-      document.getElementById('genDays').disabled = isSub;
-      document.getElementById('genDays').classList.toggle('opacity-50', isSub);
-      document.getElementById('genHours').disabled = isSub;
-      document.getElementById('genHours').classList.toggle('opacity-50', isSub);
-      document.getElementById('genPermanent').disabled = isSub;
-      document.getElementById('genPermanent').classList.toggle('opacity-50', isSub);
-
-      if (isSub) {
-        document.getElementById('genDays').value = 0;
-        document.getElementById('genHours').value = 0;
-        document.getElementById('genMinutes').value = 5;
-        document.getElementById('genPermanent').checked = false;
-        document.getElementById('genMinutes').max = 15;
-        document.getElementById('genMinutes').placeholder = '1-15';
-        document.getElementById('subAdminLimitNotice').classList.remove('hidden');
-      } else {
-        document.getElementById('genMinutes').max = 59;
-        document.getElementById('genMinutes').placeholder = '';
-        document.getElementById('subAdminLimitNotice').classList.add('hidden');
-      }
-    }
+          const isSub = userRole === 'sub_admin';
+          document.getElementById('subAdminLimitNotice').classList.toggle('hidden', !isSub);
+        }
 
     document.getElementById('generateForm').addEventListener('submit', async (e) => {
       e.preventDefault();
